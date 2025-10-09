@@ -25,14 +25,20 @@ def ensure_singularity_image(image_name: str) -> None:
     from huggingface_hub import hf_hub_download
 
     hf_repo = os.environ.get("HF_SIF_REPO", "timurcarstensen/testing")
-    image_path = Path(os.getenv("EVAL_BASE_DIR")) / image_name
+    eval_base_dir = os.getenv("EVAL_BASE_DIR")
+    if eval_base_dir is None:
+        raise ValueError(
+            "EVAL_BASE_DIR is not set. Please configure it in clusters.yaml or the environment."
+        )
+
+    image_path = Path(eval_base_dir) / image_name
 
     try:
         hf_hub_download(
             repo_id=hf_repo,
             filename=image_name,
             repo_type="dataset",
-            local_dir=os.getenv("EVAL_BASE_DIR"),
+            local_dir=eval_base_dir,
         )
         logging.info(
             "Successfully downloaded latest Singularity image from HuggingFace"
@@ -51,7 +57,7 @@ def ensure_singularity_image(image_name: str) -> None:
 
     logging.info(
         "Singularity image ready at %s",
-        Path(os.getenv("EVAL_BASE_DIR")) / os.getenv("EVAL_CONTAINER_IMAGE"),
+        Path(eval_base_dir) / image_name,
     )
 
 
@@ -160,7 +166,7 @@ def _expand_local_model_paths(model: str) -> list[Path]:
     Returns:
         List of paths to model directories containing safetensors files
     """
-    model_paths = []
+    model_paths: list[Path] = []
     model_path = Path(model)
 
     if not model_path.exists() or not model_path.is_dir():
@@ -207,7 +213,7 @@ def _expand_local_model_paths(model: str) -> list[Path]:
     return model_paths
 
 
-def _process_model_paths(models: Iterable[str]) -> dict[str, list[Path | str]]:
+def _process_model_paths(models: Iterable[str]) -> dict[str, list[str]]:
     """
     Processes model strings into a dict of model paths.
 
@@ -216,13 +222,13 @@ def _process_model_paths(models: Iterable[str]) -> dict[str, list[Path | str]]:
     """
     from huggingface_hub import snapshot_download
 
-    processed_model_paths = {}
-    model_paths = []
+    processed_model_paths: dict[str, list[str]] = {}
     for model in models:
+        model_paths: list[str] = []
         # First try to expand local paths
         local_paths = _expand_local_model_paths(model)
         if local_paths:
-            model_paths.extend(local_paths)
+            model_paths.extend(str(path) for path in local_paths)
         else:
             logging.info(
                 f"Model {model} not found locally, assuming it is a 🤗 hub model"
@@ -247,9 +253,16 @@ def _process_model_paths(models: Iterable[str]) -> dict[str, list[Path | str]]:
                 try:
                     # Pre-download (or reuse cache) for the whole repository so that
                     # compute nodes can load it offline.
+                    hf_home = os.getenv("HF_HOME")
+                    if hf_home is None:
+                        raise ValueError(
+                            "HF_HOME is not set. Please configure it before scheduling evals."
+                        )
+                    cache_dir = Path(hf_home) / "hub"
+
                     snapshot_download(
                         repo_id=repo_id,
-                        cache_dir=Path(os.getenv("HF_HOME")) / "hub",
+                        cache_dir=cache_dir,
                         **snapshot_kwargs,
                     )
                     model_paths.append(model)
@@ -263,9 +276,16 @@ def _process_model_paths(models: Iterable[str]) -> dict[str, list[Path | str]]:
                 # original identifier is kept in *model_paths* so downstream
                 # code can still reference it; at runtime the files will be
                 # read from cache, allowing offline execution.
+                hf_home = os.getenv("HF_HOME")
+                if hf_home is None:
+                    raise ValueError(
+                        "HF_HOME is not set. Please configure it before scheduling evals."
+                    )
+                cache_dir = Path(hf_home) / "hub"
+
                 snapshot_download(
                     repo_id=model,
-                    cache_dir=Path(os.getenv("HF_HOME")) / "hub",
+                    cache_dir=cache_dir,
                 )
                 model_paths.append(model)
 
@@ -492,12 +512,12 @@ def schedule_evals(
         if not model_list:
             raise ValueError("No models specified.")
 
-        model_paths = []
+        model_paths: list[str] = []
 
         for model in model_list:
             local_paths = _expand_local_model_paths(model)
             if local_paths:
-                model_paths.extend(local_paths)
+                model_paths.extend(str(path) for path in local_paths)
             else:
                 model_paths.append(model)
 
@@ -555,25 +575,25 @@ def schedule_evals(
 
     elif models and tasks and n_shot is not None:
         model_list = models.split(",")
-        model_paths = []
+        expanded_model_paths: list[str] = []
 
         # Always expand local paths
         for model in model_list:
             local_paths = _expand_local_model_paths(model)
             if local_paths:
-                model_paths.extend(local_paths)
+                expanded_model_paths.extend(str(path) for path in local_paths)
             else:
-                model_paths.append(model)
+                expanded_model_paths.append(model)
 
         # Download HF models only if skip_checks is False
         if not skip_checks:
-            hf_models = [m for m in model_paths if not Path(m).exists()]
+            hf_models = [m for m in expanded_model_paths if not Path(m).exists()]
             if hf_models:
                 model_path_map = _process_model_paths(hf_models)
                 # Replace HF model identifiers with processed paths
-                model_paths = [
+                expanded_model_paths = [
                     model_path_map[m][0] if m in model_path_map else m
-                    for m in model_paths
+                    for m in expanded_model_paths
                 ]
         else:
             logging.info(
@@ -585,7 +605,7 @@ def schedule_evals(
         # cross product of model_paths and tasks into a dataframe
         df = pd.DataFrame(
             product(
-                model_paths,
+                expanded_model_paths,
                 tasks_list,
                 n_shot if isinstance(n_shot, list) else [n_shot],
             ),

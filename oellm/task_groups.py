@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Iterable, List, Sequence, Tuple
+from typing import Iterable, Sequence
 
 import yaml
 
@@ -37,7 +37,7 @@ def resolve_task_group(
     task_groups: dict[str, dict],
     console=None,
     _chain: Sequence[str] | None = None,
-) -> List[dict]:
+) -> list[dict]:
     """Resolve a task group into its concrete task definitions."""
 
     if _chain is None:
@@ -54,7 +54,7 @@ def resolve_task_group(
 
     group_data = task_groups.get(group_name) or {}
     chain = list(_chain) + [group_name]
-    resolved_tasks: List[dict] = []
+    resolved_tasks: list[dict] = []
 
     subgroups = group_data.get("groups", [])
     if subgroups:
@@ -97,11 +97,11 @@ def flatten_task_groups(
     *,
     console=None,
     on_duplicate=None,
-) -> List[Tuple[str, int]]:
+) -> list[tuple[str, int]]:
     """Flatten multiple task groups into (task, n_shot) pairs without duplicates."""
 
-    seen: set[Tuple[str, int]] = set()
-    flattened: List[Tuple[str, int]] = []
+    seen: set[tuple[str, int]] = set()
+    flattened: list[tuple[str, int]] = []
 
     for group_name in group_names:
         resolved = resolve_task_group(group_name, task_groups, console=console)

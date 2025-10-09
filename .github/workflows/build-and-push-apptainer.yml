@@ -18,7 +18,7 @@ jobs:
       matrix:
         image: [jureca, leonardo, lumi]
     name: Build & Publish SIF Artifact (${{ matrix.image }})
-    runs-on: 
+    runs-on:
       - runs-on=${{github.run_id}}/family=i7ie
     permissions:
       contents: read
@@ -26,7 +26,7 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      
+
       - name: Install Apptainer
         run: |
           sudo apt-get update
@@ -45,7 +45,7 @@ jobs:
       - name: Login to Hugging Face Hub
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: hf auth login --token "$HF_TOKEN"  
+        run: hf auth login --token "$HF_TOKEN"
 
       - name: Upload SIF to Hugging Face Hub
         env:

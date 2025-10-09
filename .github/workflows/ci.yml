@@ -51,4 +51,3 @@ jobs:
       run: |
         uvx yamllint . || true
       continue-on-error: true
-

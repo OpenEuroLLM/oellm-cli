@@ -1,6 +1,6 @@
 # OpenEuroLLM CLI (oellm)
 
-A package for running OELLM CLI workflows across multiple HPC clusters using SLURM job arrays and Singularity containers. 
+A package for running OELLM CLI workflows across multiple HPC clusters using SLURM job arrays and Singularity containers.
 
 ## Currently supported workflows
 - Schedule evaluations on multiple models and tasks on all clusters ✅ `oellm schedule-eval ...`
@@ -36,7 +36,7 @@ This will automatically:
 - Generate a SLURM job array to evaluate all model-task combinations
 - Submit the jobs with appropriate cluster-specific resource allocations
 
-In case you meet HuggingFace quotas issues, make sure you are logged in by setting your `HF_TOKEN` and that you are part of [OpenEuroLLM](https://huggingface.co/OpenEuroLLM) organization. 
+In case you meet HuggingFace quotas issues, make sure you are logged in by setting your `HF_TOKEN` and that you are part of [OpenEuroLLM](https://huggingface.co/OpenEuroLLM) organization.
 
 ## Interactive CSV Builder
 

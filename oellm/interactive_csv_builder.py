@@ -60,10 +60,10 @@ def build_csv_interactive(output_path: str = "eval_config.csv") -> None:
     # Step 1: Get models with enhanced input
     console.print("\n[bold cyan]📦 Step 1: Add Models[/bold cyan]")
 
-    models = []
+    models: list[str] = []
     add_more = True
 
-    existing_group_entries = set()
+    existing_group_entries: set[tuple[str, tuple[int, ...]]] = set()
 
     while add_more:
         try:
@@ -119,7 +119,7 @@ def build_csv_interactive(output_path: str = "eval_config.csv") -> None:
     # Step 2: Configure tasks
     console.print("\n[bold cyan]📝 Step 2: Configure Tasks[/bold cyan]")
 
-    task_configs = []
+    task_configs: list[tuple[str, list[int]]] = []
     add_more = True
 
     # Load task groups from YAML file
