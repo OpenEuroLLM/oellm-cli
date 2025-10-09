@@ -17,6 +17,8 @@ from rich import box
 from rich.console import Console
 from rich.logging import RichHandler
 
+from .task_groups import flatten_task_groups, load_task_groups
+
 
 def ensure_singularity_image(image_name: str) -> None:
     # TODO: switch to OELLM dataset repo once it is created
@@ -381,6 +383,7 @@ def _pre_download_task_datasets(
 def schedule_evals(
     models: str | None = None,
     tasks: str | None = None,
+    task_group: str | None = None,
     n_shot: int | list[int] | None = None,
     eval_csv_path: str | None = None,
     *,
@@ -405,6 +408,9 @@ def schedule_evals(
             - For each model directory, if it has an `hf/iter_XXXXX` structure, all checkpoints will be expanded
             - This allows passing a single directory containing multiple models to evaluate them all
         tasks: A string of comma-separated task paths.
+        task_group: Name(s) of task groups defined in ``task-groups.yaml`` to expand.
+            Multiple groups can be provided as a comma-separated string. Cannot be used
+            together with ``tasks`` or ``n_shot``.
         n_shot: An integer or list of integers specifying the number of shots for each task.
         eval_csv_path: A path to a CSV file containing evaluation data.
             Warning: exclusive argument. Cannot specify `models`, `tasks`, or `n_shot` when `eval_csv_path` is provided.
@@ -432,9 +438,9 @@ def schedule_evals(
         logging.info("Skipping container image check (--skip-checks enabled)")
 
     if eval_csv_path:
-        if models or tasks or n_shot:
+        if models or tasks or task_group or n_shot:
             raise ValueError(
-                "Cannot specify `models`, `tasks`, or `n_shot` when `eval_csv_path` is provided."
+                "Cannot specify `models`, `tasks`, `task_group`, or `n_shot` when `eval_csv_path` is provided."
             )
         df = pd.read_csv(eval_csv_path)
         required_cols = {"model_path", "task_path", "n_shot"}
@@ -476,6 +482,77 @@ def schedule_evals(
                 "Skipping model path processing and validation (--skip-checks enabled)"
             )
 
+    elif models and task_group:
+        if tasks or n_shot is not None:
+            raise ValueError(
+                "Cannot combine `task_group` with explicit `tasks` or `n_shot` arguments."
+            )
+
+        model_list = [m.strip() for m in models.split(",") if m.strip()]
+        if not model_list:
+            raise ValueError("No models specified.")
+
+        model_paths = []
+
+        for model in model_list:
+            local_paths = _expand_local_model_paths(model)
+            if local_paths:
+                model_paths.extend(local_paths)
+            else:
+                model_paths.append(model)
+
+        if not skip_checks:
+            hf_models = [m for m in model_paths if not Path(m).exists()]
+            if hf_models:
+                model_path_map = _process_model_paths(hf_models)
+                model_paths = [
+                    model_path_map[m][0] if m in model_path_map else m
+                    for m in model_paths
+                ]
+        else:
+            logging.info(
+                "Skipping model path processing and validation (--skip-checks enabled)"
+            )
+
+        group_names = [name.strip() for name in task_group.split(",") if name.strip()]
+        if not group_names:
+            raise ValueError("No task groups specified.")
+
+        task_groups = load_task_groups()
+
+        def _capture_duplicate(group_name: str, pair: tuple[str, int]) -> None:
+            task_name, nshot = pair
+            logging.info(
+                "Skipping duplicate task '%s' with n_shot=%s from group '%s'",
+                task_name,
+                nshot,
+                group_name,
+            )
+
+        flattened = flatten_task_groups(
+            group_names,
+            task_groups,
+            on_duplicate=_capture_duplicate,
+        )
+
+        if not flattened:
+            raise ValueError(
+                "Resolved task groups did not yield any tasks. Check task-groups.yaml."
+            )
+
+        records = []
+        for model_path in model_paths:
+            for task_name, nshot in flattened:
+                records.append(
+                    {
+                        "model_path": model_path,
+                        "task_path": task_name,
+                        "n_shot": nshot,
+                    }
+                )
+
+        df = pd.DataFrame(records)
+
     elif models and tasks and n_shot is not None:
         model_list = models.split(",")
         model_paths = []
@@ -516,7 +593,8 @@ def schedule_evals(
         )
     else:
         raise ValueError(
-            "Either `eval_csv_path` must be provided, or all of `models`, `tasks`, and `n_shot`."
+            "Either provide `eval_csv_path`, or specify `models` with `tasks` and `n_shot`,"
+            " or `models` with `task_group`."
         )
 
     if df.empty:

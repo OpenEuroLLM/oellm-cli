@@ -79,3 +79,8 @@ task_groups:
         n_shots: [5]
       - task: belebele_swe_Latn
         n_shots: [5]
+  open-sci-and-belebele:
+    description: "Combined open-sci-0.01 and Belebele EU task groups"
+    groups:
+      - open-sci-0.01
+      - belebele-eu-5-shot
