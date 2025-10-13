@@ -79,3 +79,67 @@ task_groups:
         n_shots: [5]
       - task: belebele_swe_Latn
         n_shots: [5]
+  oellm-multilingual:
+    description: "Combined Belebele EU set plus multilingual benchmarks"
+    tasks:
+      - task: belebele_bul_Cyrl
+        n_shots: [5]
+      - task: belebele_hrv_Latn
+        n_shots: [5]
+      - task: belebele_ces_Latn
+        n_shots: [5]
+      - task: belebele_dan_Latn
+        n_shots: [5]
+      - task: belebele_nld_Latn
+        n_shots: [5]
+      - task: belebele_eng_Latn
+        n_shots: [5]
+      - task: belebele_est_Latn
+        n_shots: [5]
+      - task: belebele_fin_Latn
+        n_shots: [5]
+      - task: belebele_fra_Latn
+        n_shots: [5]
+      - task: belebele_deu_Latn
+        n_shots: [5]
+      - task: belebele_ell_Grek
+        n_shots: [5]
+      - task: belebele_hun_Latn
+        n_shots: [5]
+      - task: belebele_ita_Latn
+        n_shots: [5]
+      - task: belebele_lvs_Latn
+        n_shots: [5]
+      - task: belebele_lit_Latn
+        n_shots: [5]
+      - task: belebele_mlt_Latn
+        n_shots: [5]
+      - task: belebele_pol_Latn
+        n_shots: [5]
+      - task: belebele_por_Latn
+        n_shots: [5]
+      - task: belebele_ron_Latn
+        n_shots: [5]
+      - task: belebele_slk_Latn
+        n_shots: [5]
+      - task: belebele_slv_Latn
+        n_shots: [5]
+      - task: belebele_spa_Latn
+        n_shots: [5]
+      - task: belebele_swe_Latn
+        n_shots: [5]
+      - task: xwinograd
+        n_shots: [0]
+      - task: xcopa
+        n_shots: [0]
+      - task: xstorycloze
+        n_shots: [0]
+      - task: global_mmlu
+        n_shots: [0]
+        suite: lm_eval
+      - task: light_eval_benchmarks/flores-200-eu.txt
+        n_shots: [0]
+        suite: lighteval
+      - task: include
+        n_shots: [0]
+        suite: lm_eval

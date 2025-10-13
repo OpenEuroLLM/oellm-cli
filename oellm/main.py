@@ -1,6 +1,7 @@
 import logging
 import os
 import re
+import shutil
 import socket
 import subprocess
 from datetime import datetime
@@ -443,6 +444,11 @@ def schedule_evals(
                 f"CSV file must contain the columns: {', '.join(required_cols)}"
             )
 
+        if "eval_suite" not in df.columns:
+            df["eval_suite"] = "lm_eval"
+        else:
+            df["eval_suite"] = df["eval_suite"].fillna("lm_eval")
+
         # Always expand local model paths, even with skip_checks
         df["model_path"].unique()
         expanded_rows = []
@@ -459,6 +465,9 @@ def schedule_evals(
                 # Keep original path (might be HF model)
                 expanded_rows.append(row)
         df = pd.DataFrame(expanded_rows)
+
+        if "eval_suite" not in df.columns:
+            df["eval_suite"] = "lm_eval"
 
         # Download HF models only if skip_checks is False
         if not skip_checks:
@@ -514,6 +523,7 @@ def schedule_evals(
             ),
             columns=["model_path", "task_path", "n_shot"],
         )
+        df["eval_suite"] = "lm_eval"
     else:
         raise ValueError(
             "Either `eval_csv_path` must be provided, or all of `models`, `tasks`, and `n_shot`."
@@ -526,9 +536,13 @@ def schedule_evals(
     # Ensure that all datasets required by the tasks are cached locally to avoid
     # network access on compute nodes.
     if not skip_checks:
-        _pre_download_task_datasets(
-            df["task_path"].unique(), trust_remote_code=trust_remote_code
-        )
+        lm_eval_tasks = df[
+            df["eval_suite"].str.lower().isin({"lm_eval", "lm-eval", "lm-eval-harness"})
+        ]["task_path"].unique()
+        if len(lm_eval_tasks) > 0:
+            _pre_download_task_datasets(
+                lm_eval_tasks, trust_remote_code=trust_remote_code
+            )
     else:
         logging.info("Skipping dataset pre-download (--skip-checks enabled)")
 
@@ -583,7 +597,12 @@ def schedule_evals(
         total_minutes = 0
         task_time_cache = {}  # Cache to avoid recalculating for same tasks
 
-        for _, row in df.iterrows():
+        lm_eval_mask = df["eval_suite"].str.lower().isin(
+            {"lm_eval", "lm-eval", "lm-eval-harness"}
+        )
+        light_eval_mask = df["eval_suite"].str.lower().isin({"lighteval", "light-eval"})
+
+        for _, row in df[lm_eval_mask].iterrows():
             task_name = row["task_path"]
             if task_name not in task_time_cache:
                 task_time_cache[task_name] = _calculate_task_minutes(
@@ -591,12 +610,27 @@ def schedule_evals(
                 )
             total_minutes += task_time_cache[task_name]
 
+        if light_eval_mask.any():
+            # LightEval benchmarks can be large; budget 15 minutes per evaluation
+            light_eval_minutes = int(light_eval_mask.sum() * 15)
+            total_minutes += light_eval_minutes
+            logging.info(
+                "Estimated LightEval time budget: %s minutes across %s evaluations",
+                light_eval_minutes,
+                light_eval_mask.sum(),
+            )
+
         # Calculate average minutes per eval for logging purposes
         minutes_per_eval = total_minutes / total_evals if total_evals > 0 else 10
 
         logging.info("📊 Dynamic time calculation:")
         for task_name, task_minutes in task_time_cache.items():
-            task_count = (df["task_path"] == task_name).sum()
+            task_count = (
+                (df["task_path"] == task_name)
+                & df["eval_suite"].str.lower().isin(
+                    {"lm_eval", "lm-eval", "lm-eval-harness"}
+                )
+            ).sum()
             logging.info(
                 f"   Task '{task_name}': {task_minutes} min/eval × {task_count} evals = {task_minutes * task_count} total minutes"
             )
@@ -607,6 +641,24 @@ def schedule_evals(
         logging.info(
             "⚠️  Using fixed 10 min/eval (task complexity detection skipped with --skip-checks)"
         )
+
+    # Copy LightEval benchmark files into evaluation directory if necessary
+    light_eval_paths = df[
+        df["eval_suite"].str.lower().isin({"lighteval", "light-eval"})
+    ]["task_path"].unique()
+    benchmark_dir = evals_dir / "light_eval_tasks"
+    copied_paths: dict[str, str] = {}
+    if light_eval_paths.size > 0:
+        benchmark_dir.mkdir(parents=True, exist_ok=True)
+        for task_path in light_eval_paths:
+            candidate = Path(task_path)
+            if candidate.exists() and candidate.is_file():
+                destination = benchmark_dir / candidate.name
+                shutil.copy(candidate, destination)
+                copied_paths[str(candidate)] = str(destination)
+
+    if copied_paths:
+        df.replace({"task_path": copied_paths}, inplace=True)
 
     # Maximum runtime per job (18 hours with safety margin)
     max_minutes_per_job = 18 * 60  # 18 hours

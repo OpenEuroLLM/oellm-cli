@@ -17,6 +17,9 @@ From: nvcr.io/nvidia/pytorch:25.06-py3
     uv pip install --system --break-system-packages lm-eval \
         "transformers<=4.53.0" "datasets<4.0.0" wandb sentencepiece tiktoken accelerate
 
+    # Install LightEval CLI in an isolated environment
+    uv tool install "lighteval[multilingual]"
+
 %environment
     # Ensure uv is present inside the container runtime as well
     export PATH=/root/.local/bin:$PATH

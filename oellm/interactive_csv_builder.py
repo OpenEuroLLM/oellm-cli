@@ -115,7 +115,7 @@ def build_csv_interactive(output_path: str = "eval_config.csv") -> None:
     # Step 2: Configure tasks
     console.print("\n[bold cyan]📝 Step 2: Configure Tasks[/bold cyan]")
 
-    task_configs = []
+    task_configs: list[tuple[str, list[int], str]] = []
     add_more = True
 
     # Load task groups from YAML file
@@ -192,9 +192,10 @@ def build_csv_interactive(output_path: str = "eval_config.csv") -> None:
                     for task_item in group_data.get("tasks", []):
                         task_name = task_item["task"]
                         n_shots = task_item.get("n_shots", [0])
-                        task_configs.append((task_name, n_shots))
+                        suite = task_item.get("suite", "lm_eval")
+                        task_configs.append((task_name, n_shots, suite))
                         console.print(
-                            f"  [green]✓ Added: {task_name} with n_shot={n_shots}[/green]"
+                            f"  [green]✓ Added: {task_name} (suite={suite}) with n_shot={n_shots}[/green]"
                         )
 
                 # After adding task groups, ask if user wants to add more or proceed
@@ -259,17 +260,53 @@ def build_csv_interactive(output_path: str = "eval_config.csv") -> None:
 
                 try:
                     n_shots = [int(x.strip()) for x in n_shots_str.split(",")]
-                    task_configs.append((task, n_shots))
+                    suite_choice = questionary.select(
+                        f"Select evaluation suite for '{task}':",
+                        choices=[
+                            questionary.Choice(
+                                "lm_eval (lm-eval-harness)", value="lm_eval"
+                            ),
+                            questionary.Choice(
+                                "lighteval (Hugging Face LightEval)",
+                                value="lighteval",
+                            ),
+                            "📝 Custom suite",
+                        ],
+                        style=custom_style,
+                    ).ask()
+
+                    if suite_choice is None:
+                        console.print("\n[yellow]Cancelled by user.[/yellow]")
+                        return
+
+                    if suite_choice == "📝 Custom suite":
+                        suite = questionary.text(
+                            "Enter suite identifier:",
+                            instruction="(e.g., custom-eval-suite)",
+                            style=custom_style,
+                        ).ask()
+                        if suite is None:
+                            console.print("\n[yellow]Cancelled by user.[/yellow]")
+                            return
+                        suite = suite.strip()
+                        if not suite:
+                            suite = "lm_eval"
+                    else:
+                        suite = suite_choice
+
+                    task_configs.append((task, n_shots, suite))
                     console.print(
-                        f"[green]✓ Added: {task} with n_shot={n_shots}[/green]"
+                        f"[green]✓ Added: {task} (suite={suite}) with n_shot={n_shots}[/green]"
                     )
                 except ValueError:
                     console.print("[red]Invalid n_shot values. Skipping.[/red]")
 
         elif action == "📋 View current tasks":
             console.print("\n[bold]Current tasks:[/bold]")
-            for i, (task, n_shots) in enumerate(task_configs, 1):
-                console.print(f"  {i}. [green]{task}[/green] → n_shot={n_shots}")
+            for i, (task, n_shots, suite) in enumerate(task_configs, 1):
+                console.print(
+                    f"  {i}. [green]{task}[/green] → n_shot={n_shots} (suite={suite})"
+                )
             console.print()
 
         elif action == "✅ Continue to preview":
@@ -285,10 +322,15 @@ def build_csv_interactive(output_path: str = "eval_config.csv") -> None:
 
         rows = []
         for model in models:
-            for task_name, n_shots in task_configs:
+            for task_name, n_shots, suite in task_configs:
                 for n_shot in n_shots:
                     rows.append(
-                        {"model_path": model, "task_path": task_name, "n_shot": n_shot}
+                        {
+                            "model_path": model,
+                            "task_path": task_name,
+                            "n_shot": n_shot,
+                            "eval_suite": suite,
+                        }
                     )
 
         df = pd.DataFrame(rows)
@@ -302,11 +344,16 @@ def build_csv_interactive(output_path: str = "eval_config.csv") -> None:
     table.add_column("Model", style="cyan", no_wrap=True)
     table.add_column("Task", style="green")
     table.add_column("n_shot", justify="right", style="yellow")
+    table.add_column("Suite", style="magenta")
 
     # Show first 10 rows
     for idx, (_, row) in enumerate(df.head(10).iterrows(), 1):
         table.add_row(
-            str(idx), str(row["model_path"]), str(row["task_path"]), str(row["n_shot"])
+            str(idx),
+            str(row["model_path"]),
+            str(row["task_path"]),
+            str(row["n_shot"]),
+            str(row["eval_suite"]),
         )
 
     if len(df) > 10:
