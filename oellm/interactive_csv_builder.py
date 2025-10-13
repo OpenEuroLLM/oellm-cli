@@ -12,6 +12,8 @@ from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
+from .task_groups import resolve_task_group
+
 
 def build_csv_interactive(output_path: str = "eval_config.csv") -> None:
     """
@@ -58,8 +60,10 @@ def build_csv_interactive(output_path: str = "eval_config.csv") -> None:
     # Step 1: Get models with enhanced input
     console.print("\n[bold cyan]📦 Step 1: Add Models[/bold cyan]")
 
-    models = []
+    models: list[str] = []
     add_more = True
+
+    existing_group_entries: set[tuple[str, tuple[int, ...]]] = set()
 
     while add_more:
         try:
@@ -115,7 +119,7 @@ def build_csv_interactive(output_path: str = "eval_config.csv") -> None:
     # Step 2: Configure tasks
     console.print("\n[bold cyan]📝 Step 2: Configure Tasks[/bold cyan]")
 
-    task_configs = []
+    task_configs: list[tuple[str, list[int]]] = []
     add_more = True
 
     # Load task groups from YAML file
@@ -186,12 +190,31 @@ def build_csv_interactive(output_path: str = "eval_config.csv") -> None:
                 # Add tasks from selected groups
                 for selection in selected_groups:
                     group_name = selection.split(" - ")[0]
-                    group_data = task_groups[group_name]
+                    try:
+                        group_tasks = resolve_task_group(
+                            group_name, task_groups, console
+                        )
+                    except ValueError as exc:
+                        console.print(f"[red]{exc}[/red]")
+                        continue
+
+                    if not group_tasks:
+                        console.print(
+                            f"[yellow]No tasks found for task group '{group_name}'.[/yellow]"
+                        )
+                        continue
 
                     console.print(f"\n[cyan]Adding tasks from '{group_name}':[/cyan]")
-                    for task_item in group_data.get("tasks", []):
+                    for task_item in group_tasks:
                         task_name = task_item["task"]
                         n_shots = task_item.get("n_shots", [0])
+                        entry_key = (task_name, tuple(n_shots))
+                        if entry_key in existing_group_entries:
+                            console.print(
+                                f"  [yellow]• Skipping duplicate: {task_name} with n_shot={n_shots}[/yellow]"
+                            )
+                            continue
+                        existing_group_entries.add(entry_key)
                         task_configs.append((task_name, n_shots))
                         console.print(
                             f"  [green]✓ Added: {task_name} with n_shot={n_shots}[/green]"
@@ -259,6 +282,8 @@ def build_csv_interactive(output_path: str = "eval_config.csv") -> None:
 
                 try:
                     n_shots = [int(x.strip()) for x in n_shots_str.split(",")]
+                    entry_key = (task, tuple(n_shots))
+                    existing_group_entries.add(entry_key)
                     task_configs.append((task, n_shots))
                     console.print(
                         f"[green]✓ Added: {task} with n_shot={n_shots}[/green]"

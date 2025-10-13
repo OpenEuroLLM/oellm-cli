@@ -22,4 +22,4 @@ From: nvcr.io/nvidia/pytorch:25.06-py3
     export PATH=/root/.local/bin:$PATH
 
 %runscript
-    exec bash "$@" 
+    exec bash "$@"

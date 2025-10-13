@@ -28,4 +28,4 @@ for def in "${APPTAINER_DIR}"/*.def; do
   build_one "${def}"
 done
 
-echo "\nAll SIF images built successfully. Find them under: ${OUTPUT_DIR}" 
+echo "\nAll SIF images built successfully. Find them under: ${OUTPUT_DIR}"
