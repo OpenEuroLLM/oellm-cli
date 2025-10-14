@@ -21,7 +21,7 @@ A package for running OELLM CLI workflows across multiple HPC clusters using SLU
 
 ```bash
 # Install the package
-uv tool install git+https://github.com/OpenEuroLLM/oellm-cli.git
+uv tool install --python 3.12 git+https://github.com/OpenEuroLLM/oellm-cli.git
 
 # Run evaluations on multiple models and tasks
 oellm schedule-eval \
