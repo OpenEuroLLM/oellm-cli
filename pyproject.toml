@@ -28,6 +28,19 @@ module-name = "oellm"
 module-root = ""
 include = ["oellm/clusters.yaml", "oellm/task-groups.yaml"]
 
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu" },
+]
+torchvision = [
+    { index = "pytorch-cpu" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
 [tool.ruff]
 line-length = 88
 target-version = "py38"
