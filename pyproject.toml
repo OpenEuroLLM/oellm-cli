@@ -6,11 +6,13 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "pandas",
-    "jsonargparse[all]",
-    "datasets<4.0.0",
+    "jsonargparse",
+    "datasets",
     "rich",
     "torch",
     "lm-eval",
+    "lighteval[extended_tasks,multilingual] @ git+https://github.com/huggingface/lighteval.git@63424f4e795ecc577b90646381b374af3a627978",
+    "pydantic<2.12",
     "huggingface_hub",
     "pyyaml",
     "questionary",

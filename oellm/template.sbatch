@@ -20,6 +20,7 @@ export HF_XET_CACHE="$HF_HOME/xet"
 export HF_ASSETS_CACHE="$HF_HOME/assets"
 export HUGGINGFACE_HUB_CACHE="$HF_HOME/hub"
 export HUGGINGFACE_ASSETS_CACHE="$HF_HOME/assets"
+export HF_DATASETS_CACHE="$HF_HOME/datasets"
 export HF_HUB_OFFLINE=1
 
 # Path to the shared Singularity image that contains all runtime deps
@@ -62,7 +63,7 @@ do
     model_path=$(echo "$model_path" | tr -d '\r')
     task_path=$(echo "$task_path" | tr -d '\r')
     n_shot=$(echo "$n_shot" | tr -d '\r')
-    eval_suite=$(echo "${eval_suite:-lm_eval}" | tr -d '\r')
+    eval_suite=$(echo "${{eval_suite:-lm_eval}}" | tr -d '\r')
 
     # Skip empty lines
     if [ -z "$model_path" ]; then
@@ -113,15 +114,15 @@ do
             if [[ -f "$LIGHT_TASK" ]]; then
                 LIGHT_TASK_ARG="$LIGHT_TASK"
             else
-                last_segment="${LIGHT_TASK##*|}"
+                last_segment="${{LIGHT_TASK##*|}}"
                 if [[ "$LIGHT_TASK" == *"|"* && "$last_segment" =~ ^[0-9]+$ ]]; then
                     if [[ -n "$n_shot" && "$last_segment" != "$n_shot" ]]; then
-                        LIGHT_TASK_ARG="${LIGHT_TASK%|*}|$n_shot"
+                        LIGHT_TASK_ARG="${{LIGHT_TASK%|*}}|$n_shot"
                     else
                         LIGHT_TASK_ARG="$LIGHT_TASK"
                     fi
                 else
-                    LIGHT_TASK_ARG="${LIGHT_TASK}|$n_shot"
+                    LIGHT_TASK_ARG="${{LIGHT_TASK}}|$n_shot"
                 fi
             fi
 
