@@ -24,7 +24,7 @@ def ensure_singularity_image(image_name: str) -> None:
     # TODO: switch to OELLM dataset repo once it is created
     from huggingface_hub import hf_hub_download
 
-    hf_repo = os.environ.get("HF_SIF_REPO", "timurcarstensen/testing")
+    hf_repo = os.environ.get("HF_SIF_REPO", "openeurollm/evaluation_singularity_images")
     eval_base_dir = os.getenv("EVAL_BASE_DIR")
     if eval_base_dir is None:
         raise ValueError(
