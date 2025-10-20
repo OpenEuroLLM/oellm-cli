@@ -44,8 +44,8 @@ url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
 [tool.ruff]
-line-length = 88
-target-version = "py38"
+line-length = 90
+target-version = "py312"
 
 [tool.ruff.lint]
 select = [
