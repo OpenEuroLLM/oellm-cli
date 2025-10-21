@@ -75,7 +75,7 @@ task_groups:
       - task: flores200:lit_Latn-eng_Latn
       - task: flores200:lvs_Latn-eng_Latn
       - task: flores200:mlt_Latn-eng_Latn
-      - task: flores200:nld_Latn-eng_Latn     
+      - task: flores200:nld_Latn-eng_Latn
       - task: flores200:pol_Latn-eng_Latn
       - task: flores200:por_Latn-eng_Latn
       - task: flores200:ron_Latn-eng_Latn
@@ -103,7 +103,7 @@ task_groups:
       - task: flores200:eng_Latn-lit_Latn
       - task: flores200:eng_Latn-lvs_Latn
       - task: flores200:eng_Latn-mlt_Latn
-      - task: flores200:eng_Latn-nld_Latn     
+      - task: flores200:eng_Latn-nld_Latn
       - task: flores200:eng_Latn-pol_Latn
       - task: flores200:eng_Latn-por_Latn
       - task: flores200:eng_Latn-ron_Latn
@@ -140,6 +140,6 @@ super_groups:
     description: "Combined Belebele EU set plus multilingual benchmarks"
     task_groups:
       - task: flores-200-eu-to-eng
-      - task: flores-200-eng-to-eu
+      # - task: flores-200-eng-to-eu
       - task: belebele-eu-5-shot
-      - task: global-mmlu-eu
+      # - task: global-mmlu-eu

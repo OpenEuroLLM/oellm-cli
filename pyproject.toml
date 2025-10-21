@@ -18,6 +18,12 @@ dependencies = [
     "questionary",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.4.1",
+    "pre-commit",
+]
+
 [project.scripts]
 oellm = "oellm.main:main"
 
@@ -28,7 +34,7 @@ build-backend = "uv_build"
 [tool.uv.build-backend]
 module-name = "oellm"
 module-root = ""
-include = ["oellm/clusters.yaml", "oellm/task-groups.yaml"]
+include = ["oellm/resources/*"]
 
 [tool.uv.sources]
 torch = [
@@ -72,8 +78,3 @@ quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
-
-[dependency-groups]
-dev = [
-    "pytest>=8.4.1",
-]

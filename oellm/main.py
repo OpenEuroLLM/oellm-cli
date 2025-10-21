@@ -2,504 +2,32 @@ import logging
 import os
 import re
 import shutil
-import socket
 import subprocess
 from datetime import datetime
-from itertools import product
+from importlib.resources import files
 from pathlib import Path
 from string import Template
-from typing import Iterable
 
 import numpy as np
 import pandas as pd
-import yaml
 from jsonargparse import auto_cli
-from rich import box
-from rich.console import Console
-from rich.logging import RichHandler
 
-
-def _ensure_singularity_image(image_name: str) -> None:
-    # TODO: switch to OELLM dataset repo once it is created
-    from huggingface_hub import hf_hub_download
-
-    hf_repo = os.environ.get("HF_SIF_REPO", "timurcarstensen/testing")
-    image_path = Path(os.getenv("EVAL_BASE_DIR")) / image_name
-
-    try:
-        hf_hub_download(
-            repo_id=hf_repo,
-            filename=image_name,
-            repo_type="dataset",
-            local_dir=os.getenv("EVAL_BASE_DIR"),
-        )
-        logging.info(
-            "Successfully downloaded latest Singularity image from HuggingFace"
-        )
-    except Exception as e:
-        logging.warning(
-            "Failed to fetch latest container image from HuggingFace: %s", str(e)
-        )
-        if image_path.exists():
-            logging.info("Using existing Singularity image at %s", image_path)
-        else:
-            raise RuntimeError(
-                f"No container image found at {image_path} and failed to download from HuggingFace. "
-                f"Cannot proceed with evaluation scheduling."
-            ) from e
-
-    logging.info(
-        "Singularity image ready at %s",
-        Path(os.getenv("EVAL_BASE_DIR")) / os.getenv("EVAL_CONTAINER_IMAGE"),
-    )
-
-
-def _setup_logging(verbose: bool = False):
-    rich_handler = RichHandler(
-        console=Console(),
-        show_time=True,
-        log_time_format="%H:%M:%S",
-        show_path=False,
-        markup=True,
-        rich_tracebacks=True,
-    )
-
-    class RichFormatter(logging.Formatter):
-        def format(self, record):
-            # Define colors for different log levels
-            record.msg = f"{record.getMessage()}"
-            return record.msg
-
-    rich_handler.setFormatter(RichFormatter())
-
-    root_logger = logging.getLogger()
-    root_logger.handlers = []  # Remove any default handlers
-    root_logger.addHandler(rich_handler)
-    root_logger.setLevel(logging.DEBUG if verbose else logging.INFO)
-
-
-def _load_cluster_env() -> None:
-    """
-    Loads the correct cluster environment variables from `clusters.yaml` based on the hostname.
-    """
-    with open(Path(__file__).parent / "clusters.yaml") as f:
-        clusters = yaml.safe_load(f)
-    hostname = socket.gethostname()
-
-    # First load shared environment variables
-    shared_cfg = clusters.get("shared", {})
-
-    # match hostname to the regex in the clusters.yaml
-    for host in set(clusters.keys()) - {"shared"}:
-        pattern = clusters[host]["hostname_pattern"]
-        # Convert shell-style wildcards to regex
-        regex_pattern = pattern.replace(".", r"\.").replace("*", ".*")
-        if re.match(f"^{regex_pattern}$", hostname):
-            cluster_cfg = clusters[host]
-            break
-    else:
-        raise ValueError(f"No cluster found for hostname: {hostname}")
-
-    # Combine shared and cluster-specific configs, with cluster-specific taking precedence
-    # Remove hostname_pattern from the final config
-    if "hostname_pattern" in cluster_cfg:
-        del cluster_cfg["hostname_pattern"]
-
-    # Set environment variables, expanding any template variables
-    for k, v in cluster_cfg.items():
-        # Expand template variables using existing environment variables
-        os.environ[k] = str(v)
-
-    for k, v in shared_cfg.items():
-        try:
-            os.environ[k] = str(v).format(**cluster_cfg)
-        except KeyError as e:
-            # when substituting env vars that are not in cluster_cfg but in the environment (e.g., $USER, $SHELL, etc...)
-            if len(e.args) > 1:
-                raise ValueError(
-                    f"Env. variable substitution for {k} failed. Missing keys: {', '.join(e.args)}"
-                ) from e
-
-            missing_key: str = e.args[0]
-            os.environ[k] = str(v).format(
-                **cluster_cfg, **{missing_key: os.environ[missing_key]}
-            )
-
-
-def _num_jobs_in_queue() -> int:
-    # TODO avoid running in shell mode which is not secure
-    result = subprocess.run(
-        "squeue -u $USER -h -t pending,running -r | wc -l",
-        shell=True,
-        capture_output=True,
-        text=True,
-    )
-
-    if result.stdout:
-        try:
-            return int(result.stdout.strip())
-        except ValueError:
-            logging.warning(f"Could not parse squeue output: {result.stdout}")
-            return 0
-
-    if result.stderr:
-        logging.warning(f"squeue command produced an error: {result.stderr.strip()}")
-
-    return 0
-
-
-def _expand_local_model_paths(model: str) -> list[Path]:
-    """
-    Expands a local model path to include all checkpoints if it's a directory.
-    Recursively searches for models in subdirectories.
-
-    Args:
-        model: Path to a model or directory containing models
-
-    Returns:
-        List of paths to model directories containing safetensors files
-    """
-    model_paths = []
-    model_path = Path(model)
-
-    if not model_path.exists() or not model_path.is_dir():
-        return model_paths
-
-    # First check if current directory contains safetensors files
-    if any(model_path.glob("*.safetensors")):
-        model_paths.append(model_path)
-        # If current dir has safetensors, don't recurse further
-        return model_paths
-
-    # Check for hf subdirectory pattern (single model with checkpoints)
-    hf_path = model_path / "hf"
-    if hf_path.exists() and hf_path.is_dir():
-        # This is a single model with checkpoints in hf/iter_* structure
-        for subdir in hf_path.glob("*"):
-            if subdir.is_dir() and any(subdir.glob("*.safetensors")):
-                model_paths.append(subdir)
-        if model_paths:
-            return model_paths
-
-    # Check if subdirectories look like model directories
-    # (e.g., open-sci-ref_model-0.13b_data-c4_...)
-    subdirs = [d for d in model_path.iterdir() if d.is_dir()]
-
-    # Process each subdirectory as a potential model
-    for subdir in subdirs:
-        # Check if this subdirectory directly contains safetensors
-        if any(subdir.glob("*.safetensors")):
-            model_paths.append(subdir)
-        else:
-            # Check for hf/iter_* pattern in this subdirectory
-            hf_subpath = subdir / "hf"
-            if hf_subpath.exists() and hf_subpath.is_dir():
-                for checkpoint_dir in hf_subpath.glob("*"):
-                    if checkpoint_dir.is_dir() and any(
-                        checkpoint_dir.glob("*.safetensors")
-                    ):
-                        model_paths.append(checkpoint_dir)
-
-    if len(model_paths) > 1:
-        logging.info(f"Expanded '{model}' to {len(model_paths)} model checkpoints")
-
-    return model_paths
-
-
-def _process_model_paths(models: Iterable[str]) -> dict[str, list[Path | str]]:
-    """
-    Processes model strings into a dict of model paths.
-
-    Each model string can be a local path or a huggingface model identifier.
-    This function expands directory paths that contain multiple checkpoints.
-    """
-    from huggingface_hub import snapshot_download
-
-    processed_model_paths = {}
-    model_paths = []
-    for model in models:
-        # First try to expand local paths
-        local_paths = _expand_local_model_paths(model)
-        if local_paths:
-            model_paths.extend(local_paths)
-        else:
-            logging.info(
-                f"Model {model} not found locally, assuming it is a 🤗 hub model"
-            )
-            logging.debug(
-                f"Downloading model {model} on the login node since the compute nodes may not have access to the internet"
-            )
-
-            if "," in model:
-                model_kwargs = dict(
-                    [kv.split("=") for kv in model.split(",") if "=" in kv]
-                )
-
-                # The first element before the comma is the repository ID on the 🤗 Hub
-                repo_id = model.split(",")[0]
-
-                # snapshot_download kwargs
-                snapshot_kwargs = {}
-                if "revision" in model_kwargs:
-                    snapshot_kwargs["revision"] = model_kwargs["revision"]
-
-                try:
-                    # Pre-download (or reuse cache) for the whole repository so that
-                    # compute nodes can load it offline.
-                    snapshot_download(
-                        repo_id=repo_id,
-                        cache_dir=Path(os.getenv("HF_HOME")) / "hub",
-                        **snapshot_kwargs,
-                    )
-                    model_paths.append(model)
-                except Exception as e:
-                    logging.debug(
-                        f"Failed to download model {model} from Hugging Face Hub. Continuing..."
-                    )
-                    logging.debug(e)
-            else:
-                # Download the entire model repository to the local cache.  The
-                # original identifier is kept in *model_paths* so downstream
-                # code can still reference it; at runtime the files will be
-                # read from cache, allowing offline execution.
-                snapshot_download(
-                    repo_id=model,
-                    cache_dir=Path(os.getenv("HF_HOME")) / "hub",
-                )
-                model_paths.append(model)
-
-        if not model_paths:
-            logging.warning(
-                f"Could not find any valid model for '{model}'. It will be skipped."
-            )
-        processed_model_paths[model] = model_paths
-    return processed_model_paths
-
-
-def _count_task_subtasks(task_name: str, task_manager) -> int:
-    from lm_eval.evaluator_utils import get_subtask_list  # type: ignore
-
-    task_objects = task_manager.load_task_or_group(task_name)
-    subtask_dict = get_subtask_list(task_objects)
-
-    total_subtasks = 0
-    for _, subtask_list in subtask_dict.items():
-        total_subtasks += len(subtask_list)
-
-    return max(1, total_subtasks)  # At least 1 subtask
-
-
-def _calculate_task_minutes(
-    task_name: str, task_manager, base_minutes_per_subtask: int = 5
-) -> int:
-    """Calculate estimated minutes for a task based on its subtask count."""
-    subtask_count = _count_task_subtasks(task_name, task_manager)
-
-    # Special handling for known multi-language tasks that take longer per subtask
-    known_complex_tasks = {
-        "belebele": 8,  # Multi-language reading comprehension, slower per subtask
-        "flores": 6,  # Translation task, moderately complex
-        "xnli": 6,  # Cross-lingual NLI
-        "xcopa": 6,  # Cross-lingual COPA
-        "xstory_cloze": 6,  # Cross-lingual story cloze
-        "paws-x": 6,  # Cross-lingual paraphrase detection
-        "hellaswag": 20,  # Hellaswag task, needs 20 minutes per subtask
-    }
-
-    # Use task-specific timing if available, otherwise use default
-    minutes_per_subtask = known_complex_tasks.get(
-        task_name.lower(), base_minutes_per_subtask
-    )
-
-    # Calculate total time: (subtasks × time_per_subtask) + base_overhead
-    base_overhead = 3  # Base overhead for task setup/teardown
-    total_minutes = max(10, (subtask_count * minutes_per_subtask) + base_overhead)
-
-    # Log for complex tasks (>5 subtasks) or any known complex task
-    if subtask_count > 5 or task_name.lower() in known_complex_tasks:
-        complexity_note = (
-            f" (known complex task, {minutes_per_subtask} min/subtask)"
-            if task_name.lower() in known_complex_tasks
-            else ""
-        )
-        logging.info(
-            f"📊 Task '{task_name}' has {subtask_count} subtasks{complexity_note}, "
-            f"estimated time: {total_minutes} minutes ({total_minutes / 60:.1f} hours)"
-        )
-
-    return total_minutes
-
-
-def _pre_download_task_datasets(
-    tasks: Iterable[str], trust_remote_code: bool = True
-) -> None:
-    """Ensure that all datasets required by the given `tasks` are present in the local 🤗 cache at $HF_HOME."""
-
-    from datasets import DownloadMode  # type: ignore
-    from lm_eval.tasks import TaskManager  # type: ignore
-
-    processed: set[str] = set()
-
-    tm = TaskManager()
-
-    for task_name in tasks:
-        if not isinstance(task_name, str) or task_name in processed:
-            continue
-        processed.add(task_name)
-
-        logging.info(
-            f"Preparing dataset for task '{task_name}' (download if not cached)…"
-        )
-
-        # Instantiating the task downloads the dataset (or reuses cache)
-
-        task_config = {
-            "task": task_name,
-            "dataset_kwargs": {"trust_remote_code": trust_remote_code},
-        }
-
-        task_objects = tm.load_config(task_config)
-
-        # Some entries might be nested dictionaries (e.g., groups)
-        stack = [task_objects]
-        while stack:
-            current = stack.pop()
-            if isinstance(current, dict):
-                stack.extend(current.values())
-                continue
-            if hasattr(current, "download") and callable(current.download):
-                try:
-                    current.download(download_mode=DownloadMode.REUSE_DATASET_IF_EXISTS)  # type: ignore[arg-type]
-                except TypeError as e:
-                    logging.error(
-                        f"Failed to download dataset for task '{task_name}' with download_mode=REUSE_DATASET_IF_EXISTS: {e}"
-                    )
-                    current.download()  # type: ignore[misc]
-
-        logging.debug(f"Finished dataset preparation for task '{task_name}'.")
-
-
-def _pre_download_lighteval_datasets(tasks: Iterable[str]) -> None:
-    """Pre-download LightEval datasets by instantiating tasks via the local LightEval Registry."""
-    import sys
-
-    local_le_src = Path(__file__).parent.parent / "lighteval" / "src"
-    if local_le_src.exists():
-        sys.path.insert(0, str(local_le_src))
-
-    from lighteval.tasks.registry import Registry, TRUNCATE_FEW_SHOTS_DEFAULTS  # type: ignore
-    from lighteval.tasks.lighteval_task import LightevalTask  # type: ignore
-
-    file_task_specs: list[str] = []
-    string_task_specs: list[str] = []
-
-    for t in tasks:
-        raw = str(t).strip()
-        if not raw:
-            continue
-        candidate = Path(raw)
-        if candidate.exists() and candidate.is_file():
-            file_task_specs.append(str(candidate))
-        else:
-            spec = raw
-            truncate_default = int(TRUNCATE_FEW_SHOTS_DEFAULTS)
-            if "|" not in spec:
-                spec = f"lighteval|{spec}|0|{truncate_default}"
-            elif spec.count("|") == 1:
-                spec = f"{spec}|0|{truncate_default}"
-            elif spec.count("|") == 2:
-                spec = f"{spec}|{truncate_default}"
-            string_task_specs.append(spec)
-
-    unique_string_specs = sorted(set(string_task_specs))
-    unique_file_specs = sorted(set(file_task_specs))
-
-    if unique_string_specs:
-        reg = Registry(custom_tasks="lighteval.tasks.multilingual.tasks")
-        configs = reg.get_tasks_configs(",".join(unique_string_specs))
-        task_dict = reg.get_tasks_from_configs(configs)
-        LightevalTask.load_datasets(task_dict)
-
-    for fp in unique_file_specs:
-        reg_file = Registry()
-        configs_file = reg_file.get_tasks_configs(fp)
-        task_dict_file = reg_file.get_tasks_from_configs(configs_file)
-        LightevalTask.load_datasets(task_dict_file)
-
-def _load_task_groups() -> dict[str, dict]:
-    """Load task groups from `task-groups.yaml` located next to this module."""
-    groups_file = Path(__file__).parent / "task-groups.yaml"
-    if not groups_file.exists():
-        raise ValueError(f"Task groups file not found: {groups_file}")
-
-    with open(groups_file) as f:
-        data = yaml.safe_load(f) or {}
-
-    groups = data.get("task_groups") or {}
-    if not isinstance(groups, dict):
-        raise ValueError("Invalid task groups format in task-groups.yaml")
-
-    return groups
-
-
-def _expand_task_groups(group_names: Iterable[str]) -> list[tuple[str, list[int], str]]:
-    """
-    Expand task group names into concrete (task, n_shots, suite) tuples.
-
-    Supports nested groups. Defaults: suite=lm_eval, n_shots=[0] when absent.
-    A group's `suite` (if present) is inherited by its items and nested groups
-    unless a leaf explicitly overrides it.
-    """
-    groups = _load_task_groups()
-    resolved: list[tuple[str, list[int], str]] = []
-
-    def expand_group(group_name: str, stack: set[str], inherited_suite: str | None = None) -> None:
-        if group_name not in groups:
-            raise ValueError(f"Unknown task group: {group_name}")
-        if group_name in stack:
-            raise ValueError(f"Cyclic task group reference detected at '{group_name}'")
-
-        stack.add(group_name)
-        group_default_suite = groups[group_name].get("suite")
-        effective_inherited_suite = inherited_suite if inherited_suite is not None else group_default_suite
-
-        for item in groups[group_name].get("tasks", []):
-            task_identifier = str(item.get("task"))
-            # Prefer explicit suite on the item; otherwise inherit; otherwise default to lm_eval
-            item_suite = item.get("suite")
-            suite_name = (
-                str(item_suite)
-                if item_suite is not None
-                else (str(effective_inherited_suite) if effective_inherited_suite is not None else "lm_eval")
-            )
-            n_shots_value = item.get("n_shots")
-
-            # Nested group reference: propagate the resolved suite
-            if task_identifier in groups:
-                next_inherited = str(item_suite) if item_suite is not None else effective_inherited_suite
-                # Pass down only an inherited suite (or explicit item override) without defaulting to "lm_eval",
-                # so that the child group's own default `suite` can take effect if present.
-                expand_group(task_identifier, stack, next_inherited)
-                continue
-
-            # Leaf task
-            if not isinstance(n_shots_value, list):
-                n_shots: list[int] = [0]
-            else:
-                # Ensure ints
-                n_shots = [int(x) for x in n_shots_value]
-
-            resolved.append((task_identifier, n_shots, suite_name))
-        stack.remove(group_name)
-
-    for raw_name in group_names:
-        name = str(raw_name).strip()
-        if not name:
-            continue
-        expand_group(name, set(), None)
-
-    return resolved
-
+from oellm.task_cache import clear_task_cache
+from oellm.task_groups import _expand_task_groups
+from oellm.utils import (
+    _ensure_singularity_image,
+    _expand_local_model_paths,
+    _load_cluster_env,
+    _num_jobs_in_queue,
+    _pre_download_lighteval_datasets,
+    _pre_download_task_datasets,
+    _process_model_paths,
+    _setup_logging,
+    capture_third_party_output_from_kwarg,
+)
+
+
+@capture_third_party_output_from_kwarg("verbose")
 def schedule_evals(
     models: str | None = None,
     tasks: str | None = None,
@@ -557,7 +85,6 @@ def schedule_evals(
     else:
         logging.info("Skipping container image check (--skip-checks enabled)")
 
-
     if eval_csv_path:
         if models or tasks or task_groups or n_shot:
             raise ValueError(
@@ -610,6 +137,7 @@ def schedule_evals(
             logging.info(
                 "Skipping model path processing and validation (--skip-checks enabled)"
             )
+
     elif models and ((tasks and n_shot is not None) or task_groups):
         model_list = [m.strip() for m in models.split(",") if m.strip()]
         model_paths: list[Path | str] = []
@@ -677,7 +205,9 @@ def schedule_evals(
                             }
                         )
 
-        df = pd.DataFrame(rows, columns=["model_path", "task_path", "n_shot", "eval_suite"])
+        df = pd.DataFrame(
+            rows, columns=["model_path", "task_path", "n_shot", "eval_suite"]
+        )
     else:
         raise ValueError(
             "Provide `eval_csv_path`, or `models` with (`tasks` and `n_shot`) and/or `task_groups`."
@@ -741,71 +271,20 @@ def schedule_evals(
 
     logging.debug(f"Saved evaluation dataframe to temporary CSV: {csv_path}")
 
-    with open(Path(__file__).parent / "template.sbatch") as f:
-        sbatch_template = f.read()
+    sbatch_template = (files("oellm.resources") / "template.sbatch").read_text()
 
     # Calculate dynamic array size and time limits
     total_evals = len(df)
 
-    # Calculate time based on actual task complexity (subtask count)
-    if not skip_checks:
-        from lm_eval.tasks import TaskManager  # type: ignore
-
-        shared_task_manager = TaskManager()
-
-        # Calculate total minutes by considering each unique task's complexity
-        total_minutes = 0
-        task_time_cache = {}  # Cache to avoid recalculating for same tasks
-
-        lm_eval_mask = df["eval_suite"].str.lower().isin(
-            {"lm_eval", "lm-eval", "lm-eval-harness"}
-        )
-        light_eval_mask = df["eval_suite"].str.lower().isin({"lighteval", "light-eval"})
-
-        for _, row in df[lm_eval_mask].iterrows():
-            task_name = row["task_path"]
-            if task_name not in task_time_cache:
-                task_time_cache[task_name] = _calculate_task_minutes(
-                    task_name, task_manager=shared_task_manager
-                )
-            total_minutes += task_time_cache[task_name]
-
-        if light_eval_mask.any():
-            # LightEval benchmarks can be large; budget 15 minutes per evaluation
-            light_eval_minutes = int(light_eval_mask.sum() * 15)
-            total_minutes += light_eval_minutes
-            logging.info(
-                "Estimated LightEval time budget: %s minutes across %s evaluations",
-                light_eval_minutes,
-                light_eval_mask.sum(),
-            )
-
-        # Calculate average minutes per eval for logging purposes
-        minutes_per_eval = total_minutes / total_evals if total_evals > 0 else 10
-
-        logging.info("📊 Dynamic time calculation:")
-        for task_name, task_minutes in task_time_cache.items():
-            task_count = (
-                (df["task_path"] == task_name)
-                & df["eval_suite"].str.lower().isin(
-                    {"lm_eval", "lm-eval", "lm-eval-harness"}
-                )
-            ).sum()
-            logging.info(
-                f"   Task '{task_name}': {task_minutes} min/eval × {task_count} evals = {task_minutes * task_count} total minutes"
-            )
-    else:
-        # Fallback to fixed timing when checks are skipped
-        minutes_per_eval = 10  # Budget 10 minutes per eval
-        total_minutes = total_evals * minutes_per_eval
-        logging.info(
-            "⚠️  Using fixed 10 min/eval (task complexity detection skipped with --skip-checks)"
-        )
+    # fixed timing estimation
+    minutes_per_eval = 10  # Budget 10 minutes per eval
+    total_minutes = total_evals * minutes_per_eval
 
     # Copy LightEval benchmark files into evaluation directory if necessary
-    light_eval_paths = df[
-        df["eval_suite"].str.lower().isin({"lighteval", "light-eval"})
-    ]["task_path"].unique()
+    # TODO: why do we need this?
+    light_eval_paths = df[df["eval_suite"].str.lower().isin({"lighteval", "light-eval"})][
+        "task_path"
+    ].unique()
     benchmark_dir = evals_dir / "light_eval_tasks"
     copied_paths: dict[str, str] = {}
     if light_eval_paths.size > 0:
@@ -1063,7 +542,6 @@ def collect_results(
                         f"No performance metric found for {model_name} | {task_name} | n_shot={n_shot} in {json_file.name}"
                     )
 
-
     if not rows and not check:
         logging.warning("No results extracted from JSON files")
         return
@@ -1151,6 +629,7 @@ def main():
             "schedule-eval": schedule_evals,
             "build-csv": build_csv,
             "collect-results": collect_results,
+            "clean-cache": lambda: clear_task_cache(),
         },
         as_positional=False,
         description="OELLM: Multi-cluster evaluation tool for language models",

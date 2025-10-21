@@ -1,5 +1,6 @@
 import signal
 import sys
+from importlib.resources import files
 from pathlib import Path
 
 import pandas as pd
@@ -118,16 +119,13 @@ def build_csv_interactive(output_path: str = "eval_config.csv") -> None:
     task_configs: list[tuple[str, list[int], str]] = []
     add_more = True
 
-    # Load task groups from YAML file
-    task_groups_file = Path(__file__).parent / "task-groups.yaml"
+    # Load task groups from packaged resources
     task_groups = {}
-    if task_groups_file.exists():
-        try:
-            with open(task_groups_file) as f:
-                data = yaml.safe_load(f)
-                task_groups = data.get("task_groups", {})
-        except Exception as e:
-            console.print(f"[yellow]Warning: Could not load task groups: {e}[/yellow]")
+    try:
+        data = yaml.safe_load((files("oellm.resources") / "task-groups.yaml").read_text())
+        task_groups = data.get("task_groups", {})
+    except Exception as e:
+        console.print(f"[yellow]Warning: Could not load task groups: {e}[/yellow]")
 
     while add_more:
         choices = [
