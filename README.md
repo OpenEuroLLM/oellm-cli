@@ -1,13 +1,13 @@
 # OpenEuroLLM CLI (oellm)
 
-A package for running OELLM CLI workflows across multiple HPC clusters using SLURM job arrays and Singularity containers. 
+A package for running OELLM CLI workflows across multiple HPC clusters using SLURM job arrays and Singularity containers.
 
 ## Currently supported workflows
 - Schedule evaluations on multiple models and tasks on all clusters ✅ `oellm schedule-eval ...`
 - Restart failed evaluations (e.g., due to node failures) ✅ `oellm collect-results ... --reschedule true`
 - Interactive eval job/csv builder ✅ `oellm build-csv`
   - Recursively resolve local paths: pass a directory containing models and their nested intermediate checkpoints, will eval all checkpoints
-  - Support default task groups (cf `oellm/task-groups.yaml`)
+  - Support default task groups (cf `oellm/resources/task-groups.yaml`)
 
 ## Planned workflows
 - Sync and download evaluation results from all clusters via a shared data layer
@@ -36,7 +36,7 @@ This will automatically:
 - Generate a SLURM job array to evaluate all model-task combinations
 - Submit the jobs with appropriate cluster-specific resource allocations
 
-In case you meet HuggingFace quotas issues, make sure you are logged in by setting your `HF_TOKEN` and that you are part of [OpenEuroLLM](https://huggingface.co/OpenEuroLLM) organization. 
+In case you meet HuggingFace quotas issues, make sure you are logged in by setting your `HF_TOKEN` and that you are part of [OpenEuroLLM](https://huggingface.co/OpenEuroLLM) organization.
 
 ## Interactive CSV Builder
 
@@ -108,7 +108,7 @@ The `oellm` package orchestrates distributed LLM evaluations through the followi
 
 ### 1. **Cluster Auto-Detection**
 - Automatically detects the current HPC cluster based on hostname patterns
-- Loads cluster-specific configurations from [`clusters.yaml`](oellm/clusters.yaml) including:
+- Loads cluster-specific configurations from [`clusters.yaml`](oellm/resources/clusters.yaml) including:
   - SLURM partition and account settings
   - Shared storage paths for models, datasets, and results
   - GPU allocation and queue limits
