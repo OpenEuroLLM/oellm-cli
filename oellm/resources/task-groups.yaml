@@ -140,6 +140,6 @@ super_groups:
     description: "Combined Belebele EU set plus multilingual benchmarks"
     task_groups:
       - task: flores-200-eu-to-eng
-      # - task: flores-200-eng-to-eu
+      - task: flores-200-eng-to-eu
       - task: belebele-eu-5-shot
-      # - task: global-mmlu-eu
+      - task: global-mmlu-eu

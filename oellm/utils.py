@@ -320,68 +320,57 @@ def _pre_download_task_datasets(
 
 
 def _pre_download_lighteval_datasets(tasks: Iterable[str]) -> None:
+    seen: set[str] = set()
     misses: list[str] = []
-    processed: set[str] = set()
-    for t in tasks:
-        raw = str(t).strip()
-        if not raw or raw in processed:
+    tasks = [str(task).strip() for task in tasks]
+    for task in tasks:
+        if not task or task in seen:
             continue
-        processed.add(raw)
-        if task_cache_lookup("lighteval", raw):
+        seen.add(task)
+        if task_cache_lookup("lighteval", task):
             logging.info(
-                f"Skipping dataset preparation for LightEval task '{raw}' (cache hit within TTL)."
+                f"Skipping dataset preparation for task '{task}' (cache hit within TTL)."
             )
             continue
-        misses.append(raw)
+        misses.append(task)
 
     if not misses:
-        for raw in processed:
-            if task_cache_lookup("lighteval", raw):
+        for task in seen:
+            if task_cache_lookup("lighteval", task):
                 prewarm_from_payload(
-                    task_cache_get_payload("lighteval", raw),
+                    task_cache_get_payload("lighteval", task),
                     trust_remote_code=True,
                 )
         return
 
-    from lighteval.tasks.lighteval_task import LightevalTask  # type: ignore
-    from lighteval.tasks.registry import (  # type: ignore
-        TRUNCATE_FEW_SHOTS_DEFAULTS,
-        Registry,
-    )
-
-    for raw in misses:
-        candidate = Path(raw)
-        if candidate.exists() and candidate.is_file():
-            with capture_hf_dataset_calls() as captured_calls:
-                reg_file = Registry()
-                configs_file = reg_file.get_tasks_configs(str(candidate))
-                task_dict_file = reg_file.get_tasks_from_configs(configs_file)
-                LightevalTask.load_datasets(task_dict_file)
-            if captured_calls:
-                payload = {"calls": dedupe_calls(captured_calls)}
-                task_cache_set_payload("lighteval", raw, payload)
-            task_cache_mark_resolved("lighteval", raw)
-            continue
-
-        # Build single-spec string and load in isolation
-        spec = raw
-        truncate_default = int(TRUNCATE_FEW_SHOTS_DEFAULTS)
-        if "|" not in spec:
-            spec = f"lighteval|{spec}|0|{truncate_default}"
-        elif spec.count("|") == 1:
-            spec = f"{spec}|0|{truncate_default}"
-        elif spec.count("|") == 2:
-            spec = f"{spec}|{truncate_default}"
-
+    for task in misses:
         with capture_hf_dataset_calls() as captured_calls:
+            from lighteval.tasks.lighteval_task import LightevalTask
+            from lighteval.tasks.registry import (
+                TRUNCATE_FEW_SHOTS_DEFAULTS,
+                Registry,
+            )
+
             reg = Registry(custom_tasks="lighteval.tasks.multilingual.tasks")
+            truncate_default = int(TRUNCATE_FEW_SHOTS_DEFAULTS)
+
+            spec = task
+            if "|" not in spec:
+                spec = f"lighteval|{spec}|0|{truncate_default}"
+            elif spec.count("|") == 1:
+                spec = f"{spec}|0|{truncate_default}"
+            elif spec.count("|") == 2:
+                spec = f"{spec}|{truncate_default}"
+
             configs = reg.get_tasks_configs(spec)
             task_dict = reg.get_tasks_from_configs(configs)
             LightevalTask.load_datasets(task_dict)
-        if captured_calls:
-            payload = {"calls": dedupe_calls(captured_calls)}
-            task_cache_set_payload("lighteval", raw, payload)
-        task_cache_mark_resolved("lighteval", raw)
+
+        payload = (
+            {"calls": dedupe_calls(captured_calls)} if captured_calls else {"calls": []}
+        )
+        task_cache_set_payload("lighteval", task, payload)
+        task_cache_mark_resolved("lighteval", task)
 
 
 @contextmanager
@@ -399,15 +388,21 @@ def capture_third_party_output(verbose: bool = False):
 
     package_root = Path(__file__).resolve().parent
 
-    def is_internal_stack(skip: int = 2, max_depth: int = 12) -> bool:
+    def is_internal_stack(skip: int = 2, max_depth: int = 20) -> bool:
         f = sys._getframe(skip)
         depth = 0
         while f and depth < max_depth:
-            filename = f.f_code.co_filename if f.f_code else ""
+            code = f.f_code
+            filename = code.co_filename if code else ""
             if filename:
                 p = Path(filename).resolve()
-                if p.is_relative_to(package_root):
-                    return True
+                name = code.co_name if code else ""
+                # Skip logging internals and our filtering wrappers to find the real caller
+                if "/logging/__init__.py" in filename or name.startswith("filtered_"):
+                    f = f.f_back
+                    depth += 1
+                    continue
+                return p.is_relative_to(package_root)
             f = f.f_back
             depth += 1
         return False

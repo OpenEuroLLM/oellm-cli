@@ -1,10 +1,16 @@
 import json
 import logging
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path
 
 TASK_CACHE_TTL_DAYS = 30
+
+
+_CURRENT_CAPTURE_BUFFER: ContextVar[list[dict] | None] = ContextVar(
+    "_CURRENT_CAPTURE_BUFFER", default=None
+)
 
 
 def get_task_cache_file() -> Path:
@@ -147,6 +153,7 @@ def dedupe_calls(calls: list[dict]) -> list[dict]:
 @contextmanager
 def capture_hf_dataset_calls():
     captured: list[dict] = []
+    _buffer_token = _CURRENT_CAPTURE_BUFFER.set(captured)
 
     import datasets as _ds  # type: ignore
     import huggingface_hub as _hfh  # type: ignore
@@ -173,17 +180,19 @@ def capture_hf_dataset_calls():
         )
         trust_remote_code = kwargs.get("trust_remote_code")
         revision = kwargs.get("revision")
-        captured.append(
-            {
-                "type": "load_dataset",
-                "path": path,
-                "name": name,
-                "data_files": data_files,
-                "split": split,
-                "revision": revision,
-                "trust_remote_code": trust_remote_code,
-            }
-        )
+        buf = _CURRENT_CAPTURE_BUFFER.get()
+        if isinstance(buf, list):
+            buf.append(
+                {
+                    "type": "load_dataset",
+                    "path": path,
+                    "name": name,
+                    "data_files": data_files,
+                    "split": split,
+                    "revision": revision,
+                    "trust_remote_code": trust_remote_code,
+                }
+            )
         return _orig_load_dataset(path, *args, **kwargs)
 
     def _snapshot_download_proxy(*args, **kwargs):  # noqa: ANN001
@@ -202,14 +211,16 @@ def capture_hf_dataset_calls():
             if "revision" in kwargs
             else (args[2] if len(args) > 2 else None)
         )
-        captured.append(
-            {
-                "type": "snapshot_download",
-                "repo_id": repo_id,
-                "repo_type": repo_type,
-                "revision": revision,
-            }
-        )
+        buf = _CURRENT_CAPTURE_BUFFER.get()
+        if isinstance(buf, list):
+            buf.append(
+                {
+                    "type": "snapshot_download",
+                    "repo_id": repo_id,
+                    "repo_type": repo_type,
+                    "revision": revision,
+                }
+            )
         return _orig_snapshot_download(*args, **kwargs)
 
     def _hf_hub_download_proxy(*args, **kwargs):  # noqa: ANN001
@@ -233,26 +244,30 @@ def capture_hf_dataset_calls():
             if "revision" in kwargs
             else (args[3] if len(args) > 3 else None)
         )
-        captured.append(
-            {
-                "type": "hf_hub_download",
-                "repo_id": repo_id,
-                "filename": filename,
-                "repo_type": repo_type,
-                "revision": revision,
-            }
-        )
+        buf = _CURRENT_CAPTURE_BUFFER.get()
+        if isinstance(buf, list):
+            buf.append(
+                {
+                    "type": "hf_hub_download",
+                    "repo_id": repo_id,
+                    "filename": filename,
+                    "repo_type": repo_type,
+                    "revision": revision,
+                }
+            )
         return _orig_hf_hub_download(*args, **kwargs)
 
     _ds.load_dataset = _load_dataset_proxy  # type: ignore[assignment]
     _hfh.snapshot_download = _snapshot_download_proxy  # type: ignore[assignment]
     _hfh.hf_hub_download = _hf_hub_download_proxy  # type: ignore[assignment]
+
     try:
         yield captured
     finally:
         _ds.load_dataset = _orig_load_dataset  # type: ignore[assignment]
         _hfh.snapshot_download = _orig_snapshot_download  # type: ignore[assignment]
         _hfh.hf_hub_download = _orig_hf_hub_download  # type: ignore[assignment]
+        _CURRENT_CAPTURE_BUFFER.reset(_buffer_token)
 
 
 def prewarm_from_payload(payload: dict | None, *, trust_remote_code: bool = True) -> None:
