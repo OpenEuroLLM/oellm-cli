@@ -2,7 +2,6 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-
 TASK_CACHE_TTL_DAYS = 30
 
 
@@ -50,5 +49,3 @@ def task_cache_mark_resolved(framework: str, task_id: str) -> None:
     key = task_cache_key(framework, task_id)
     cache[key] = {"ts": datetime.now().timestamp()}
     save_task_cache(cache)
-
-
