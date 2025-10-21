@@ -50,7 +50,7 @@ This will launch an interactive workflow where you can:
 - Configure n-shot settings
 - Preview and save your evaluation configuration
 
-The resulting CSV now includes an additional `eval_suite` column that records which
+The resulting CSV includes an additional `eval_suite` column that records which
 evaluation framework (e.g., `lm_eval` or `lighteval`) should be used for each
 task.
 
