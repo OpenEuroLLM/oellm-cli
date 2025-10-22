@@ -135,8 +135,8 @@ do
                 lighteval accelerate \
                     "model_name=$model_path,trust_remote_code=True" \
                     "$LIGHT_TASK_ARG" \
-                    --output_dir "$RESULTS_SUBDIR" \
-                    --save_details
+                    --output-dir "$RESULTS_SUBDIR" \
+                    --save-details
             ;;
         *)
             echo "[warning] Unknown evaluation suite '$eval_suite'. Skipping."
