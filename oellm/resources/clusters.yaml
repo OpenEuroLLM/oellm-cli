@@ -5,8 +5,8 @@ shared:
   HF_HOME: "{EVAL_BASE_DIR}/hf_data"  # where HuggingFace models and datasets are stored
   EVAL_OUTPUT_DIR: "{EVAL_BASE_DIR}/{USER}"  # where evaluations are written
   GPUS_PER_NODE: 1
-  HF_HUB_DISABLE_PROGRESS_BARS: "0"
-  HF_DATASETS_DISABLE_PROGRESS_BARS: "0"
+  HF_HUB_DISABLE_PROGRESS_BARS: "1"
+  HF_DATASETS_DISABLE_PROGRESS_BARS: "1"
 
 leonardo:
   hostname_pattern: "*.leonardo.local"  # use this regexp to automatically assign environment variables corresponding to this YAML
