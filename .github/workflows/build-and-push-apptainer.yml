@@ -37,7 +37,7 @@ jobs:
 
       - name: Build SIF from definition file
         run: |
-          apptainer --verbose build --mksquashfs-args="-comp zstd -Xcompression-level 6" --fakeroot eval_env-${{ matrix.image }}.sif apptainer/${{ matrix.image }}.def
+          apptainer --verbose build --mksquashfs-args="-comp gzip -Xcompression-level 1" --fakeroot eval_env-${{ matrix.image }}.sif apptainer/${{ matrix.image }}.def
 
       - name: Install Hugging Face Hub CLI
         run: pip install --upgrade "huggingface_hub"
