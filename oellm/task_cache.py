@@ -1,5 +1,4 @@
 import json
-import logging
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime

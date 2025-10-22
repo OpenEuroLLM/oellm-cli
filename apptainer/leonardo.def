@@ -26,7 +26,7 @@ import nltk
 nltk.download('punkt', download_dir='/opt/nltk_data')
 nltk.download('punkt_tab', download_dir='/opt/nltk_data')
 PY
-    
+
 %environment
     export PATH=/usr/local/bin:$PATH
     export UV_TOOL_BIN_DIR=/usr/local/bin
@@ -34,4 +34,4 @@ PY
     export NLTK_DATA=/opt/nltk_data
 
 %runscript
-    exec bash "$@" 
+    exec bash "$@"

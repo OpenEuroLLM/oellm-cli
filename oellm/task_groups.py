@@ -1,4 +1,3 @@
-from typing import TypedDict
 from collections.abc import Iterable
 from dataclasses import dataclass
 from importlib.resources import files
@@ -128,7 +127,7 @@ def _expand_task_groups(group_names: Iterable[str]) -> list[TaskGroupResult]:
             suite = group.suite
             for t in group.tasks:
                 shots = [int(s) for s in (t.n_shots or [])]
-                for shot in shots: 
+                for shot in shots:
                     results.append(TaskGroupResult(task=t.name, n_shot=shot, suite=suite))
         else:
             for g in group.task_groups:
