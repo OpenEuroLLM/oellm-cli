@@ -25,7 +25,6 @@ From: nvcr.io/nvidia/pytorch:25.06-py3
 import nltk
 nltk.download('punkt', download_dir='/opt/nltk_data')
 nltk.download('punkt_tab', download_dir='/opt/nltk_data')
-print('nltk data downloaded')
 PY
     
 %environment
