@@ -131,6 +131,7 @@ do
 
             singularity exec $SINGULARITY_ARGS \
                 --bind $BIND_PATHS \
+                --env CUDA_VISIBLE_DEVICES=$SLURM_GPUS_PER_NODE \
                 $EVAL_SIF_PATH \
                 lighteval accelerate \
                     "model_name=$model_path,trust_remote_code=True" \
