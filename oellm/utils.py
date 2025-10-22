@@ -25,90 +25,32 @@ from oellm.task_cache import (
     task_cache_set_payload,
 )
 
-
-@contextmanager
-def suppress_tqdm_rendering(enabled: bool = True):
-    """
-    Temporarily suppresses tqdm progress bar rendering when enabled=True.
-
-    This prevents any visual rendering by overriding the class methods
-    responsible for output, without altering other behavior.
-    """
-    if not enabled:
-        yield
-        return
-
-    import tqdm as _tqdm
-    from tqdm import auto as _tqdm_auto
-
-    classes = [_tqdm.tqdm, _tqdm_auto.tqdm]
-    seen: set[int] = set()
-    patched: list[tuple[object, str, object]] = []
-
-    for cls in classes:
-        cid = id(cls)
-        if cid in seen:
-            continue
-        seen.add(cid)
-
-        if hasattr(cls, "display"):
-            orig_display = cls.display  # type: ignore[attr-defined]
-
-            def _noop_display(self, *args, **kwargs):
-                return None
-
-            cls.display = _noop_display  # type: ignore[assignment]
-            patched.append((cls, "display", orig_display))
-
-        if hasattr(cls, "refresh"):
-            orig_refresh = cls.refresh  # type: ignore[attr-defined]
-
-            def _noop_refresh(self, *args, **kwargs):
-                return None
-
-            cls.refresh = _noop_refresh  # type: ignore[assignment]
-            patched.append((cls, "refresh", orig_refresh))
-
-    try:
-        yield
-    finally:
-        for cls, name, orig in patched:
-            setattr(cls, name, orig)
+_RICH_CONSOLE: Console | None = None
 
 
-def filter_tqdm(enabled: bool = True):
-    """
-    Decorator factory to suppress tqdm rendering for the wrapped function
-    when enabled=True.
-    """
-
-    def _decorator(func):
-        @wraps(func)
-        def _wrapper(*args, **kwargs):
-            with suppress_tqdm_rendering(enabled=enabled):
-                return func(*args, **kwargs)
-
-        return _wrapper
-
-    return _decorator
+def get_console() -> Console:
+    global _RICH_CONSOLE
+    if _RICH_CONSOLE is None:
+        _RICH_CONSOLE = Console()
+    return _RICH_CONSOLE
 
 
-@filter_tqdm(enabled=False)
 def _ensure_singularity_image(image_name: str) -> None:
     from huggingface_hub import hf_hub_download
 
     image_path = Path(os.getenv("EVAL_BASE_DIR")) / image_name
 
-    logging.info(f"Downloading latest Singularity image from HuggingFace: {image_name}")
-
     try:
-        hf_hub_download(
-            repo_id="openeurollm/evaluation_singularity_images",
-            filename=image_name,
-            repo_type="dataset",
-            local_dir=os.getenv("EVAL_BASE_DIR"),
-        )
-        logging.info("Successfully downloaded latest Singularity image from HuggingFace")
+        console = get_console()
+        with console.status(
+            "Downloading latest Singularity image from HuggingFace", spinner="dots"
+        ):
+            hf_hub_download(
+                repo_id="openeurollm/evaluation_singularity_images",
+                filename=image_name,
+                repo_type="dataset",
+                local_dir=os.getenv("EVAL_BASE_DIR"),
+            )
     except Exception as e:
         logging.warning(
             "Failed to fetch latest container image from HuggingFace: %s", str(e)
@@ -121,15 +63,10 @@ def _ensure_singularity_image(image_name: str) -> None:
                 f"Cannot proceed with evaluation scheduling."
             ) from e
 
-    logging.info(
-        "Singularity image ready at %s",
-        Path(os.getenv("EVAL_BASE_DIR")) / os.getenv("EVAL_CONTAINER_IMAGE"),
-    )
-
 
 def _setup_logging(verbose: bool = False):
     rich_handler = RichHandler(
-        console=Console(),
+        console=get_console(),
         show_time=True,
         log_time_format="%H:%M:%S",
         show_path=False,
@@ -208,7 +145,7 @@ def _num_jobs_in_queue() -> int:
     return sum(1 for line in output.splitlines() if line.strip())
 
 
-def _expand_local_model_paths(model: str) -> list[Path]:
+def _expand_local_model_paths(model: str | Path) -> list[Path]:
     """
     Expands a local model path to include all checkpoints if it's a directory.
     Recursively searches for models in subdirectories.
@@ -257,8 +194,7 @@ def _expand_local_model_paths(model: str) -> list[Path]:
     return model_paths
 
 
-@filter_tqdm(enabled=True)
-def _process_model_paths(models: Iterable[str]) -> dict[str, list[Path | str]]:
+def _process_model_paths(models: Iterable[str]):
     """
     Processes model strings into a dict of model paths.
 
@@ -267,86 +203,102 @@ def _process_model_paths(models: Iterable[str]) -> dict[str, list[Path | str]]:
     """
     from huggingface_hub import snapshot_download
 
-    processed_model_paths: dict[str, list[Path | str]] = {}
+    console = get_console()
+    models_list = list(models)
 
-    for model in models:
-        per_model_paths: list[Path | str] = []
+    with console.status(
+        f"Processing models… 0/{len(models_list)}", spinner="dots"
+    ) as status:
+        for idx, model in enumerate(models_list, 1):
+            status.update(f"Checking model '{model}' ({idx}/{len(models_list)})")
+            per_model_paths: list[Path | str] = []
 
-        local_paths = _expand_local_model_paths(model)
-        if local_paths:
-            per_model_paths.extend(local_paths)
-        else:
-            logging.info(
-                f"Model {model} not found locally, assuming it is a 🤗 hub model"
-            )
-            logging.debug(
-                f"Downloading model {model} on the login node since the compute nodes may not have access to the internet"
-            )
-
-            if "," in model:
-                model_kwargs = dict(
-                    [kv.split("=") for kv in model.split(",") if "=" in kv]
+            local_paths = _expand_local_model_paths(model)
+            if local_paths:
+                per_model_paths.extend(local_paths)
+                status.update(f"Using local model '{model}' ({idx}/{len(models_list)})")
+            else:
+                logging.info(
+                    f"Model {model} not found locally, assuming it is a 🤗 hub model"
+                )
+                logging.debug(
+                    f"Downloading model {model} on the login node since the compute nodes may not have access to the internet"
                 )
 
-                repo_id = model.split(",")[0]
+                if "," in model:
+                    model_kwargs = dict(
+                        [kv.split("=") for kv in model.split(",") if "=" in kv]
+                    )
 
-                snapshot_kwargs = {}
-                if "revision" in model_kwargs:
-                    snapshot_kwargs["revision"] = model_kwargs["revision"]
+                    repo_id = model.split(",")[0]
 
-                try:
+                    snapshot_kwargs = {}
+                    if "revision" in model_kwargs:
+                        snapshot_kwargs["revision"] = model_kwargs["revision"]
+
+                    status.update(f"Downloading '{repo_id}' ({idx}/{len(models_list)})")
+                    try:
+                        snapshot_download(
+                            repo_id=repo_id,
+                            cache_dir=Path(os.getenv("HF_HOME")) / "hub",
+                            **snapshot_kwargs,
+                        )
+                        per_model_paths.append(model)
+                    except Exception as e:
+                        logging.debug(
+                            f"Failed to download model {model} from Hugging Face Hub. Continuing..."
+                        )
+                        logging.debug(e)
+                else:
+                    status.update(f"Downloading '{model}' ({idx}/{len(models_list)})")
                     snapshot_download(
-                        repo_id=repo_id,
+                        repo_id=model,
                         cache_dir=Path(os.getenv("HF_HOME")) / "hub",
-                        **snapshot_kwargs,
                     )
                     per_model_paths.append(model)
-                except Exception as e:
-                    logging.debug(
-                        f"Failed to download model {model} from Hugging Face Hub. Continuing..."
-                    )
-                    logging.debug(e)
-            else:
-                snapshot_download(
-                    repo_id=model,
-                    cache_dir=Path(os.getenv("HF_HOME")) / "hub",
+
+            if not per_model_paths:
+                logging.warning(
+                    f"Could not find any valid model for '{model}'. It will be skipped."
                 )
-                per_model_paths.append(model)
-
-        if not per_model_paths:
-            logging.warning(
-                f"Could not find any valid model for '{model}'. It will be skipped."
-            )
-        processed_model_paths[model] = per_model_paths
-
-    return processed_model_paths
 
 
-@filter_tqdm(enabled=True)
 def _pre_download_task_datasets(
     tasks: Iterable[str], trust_remote_code: bool = True
 ) -> None:
     processed: set[str] = set()
 
     misses: list[str] = []
-    for task_name in tasks:
-        if not isinstance(task_name, str) or task_name in processed:
-            continue
-        processed.add(task_name)
-        if task_cache_lookup("lm-eval", task_name):
-            logging.info(
-                f"Skipping dataset preparation for task '{task_name}' (cache hit within TTL)."
+    console = get_console()
+    with console.status("Checking lm-eval datasets…", spinner="dots") as status:
+        cache_hits = 0
+        for task_name in tasks:
+            if not isinstance(task_name, str) or task_name in processed:
+                continue
+            processed.add(task_name)
+            if task_cache_lookup("lm-eval", task_name):
+                cache_hits += 1
+                status.update(
+                    f"Checking lm-eval datasets… {cache_hits} cached, {len(misses)} to prepare"
+                )
+                continue
+            misses.append(task_name)
+            status.update(
+                f"Checking lm-eval datasets… {cache_hits} cached, {len(misses)} to prepare"
             )
-            continue
-        misses.append(task_name)
 
     if not misses:
-        for task_name in processed:
-            if task_cache_lookup("lm-eval", task_name):
-                prewarm_from_payload(
-                    task_cache_get_payload("lm-eval", task_name),
-                    trust_remote_code=trust_remote_code,
-                )
+        with console.status(
+            f"Using cached lm-eval datasets for {len(processed)} tasks…",
+            spinner="dots",
+        ) as status:
+            for task_name in processed:
+                if task_cache_lookup("lm-eval", task_name):
+                    status.update(f"Loading cached dataset for '{task_name}'…")
+                    prewarm_from_payload(
+                        task_cache_get_payload("lm-eval", task_name),
+                        trust_remote_code=trust_remote_code,
+                    )
         return
 
     from datasets import DownloadMode  # type: ignore
@@ -354,96 +306,115 @@ def _pre_download_task_datasets(
 
     tm = TaskManager()
 
-    for task_name in misses:
-        logging.info(
-            f"Preparing dataset for task '{task_name}' (download if not cached)…"
-        )
+    with console.status(
+        f"Preparing lm-eval datasets… {len(misses)} remaining",
+        spinner="dots",
+    ) as status:
+        for idx, task_name in enumerate(misses, 1):
+            status.update(f"Preparing dataset for '{task_name}' ({idx}/{len(misses)})")
 
-        task_config = {
-            "task": task_name,
-            "dataset_kwargs": {"trust_remote_code": trust_remote_code},
-        }
+            task_config = {
+                "task": task_name,
+                "dataset_kwargs": {"trust_remote_code": trust_remote_code},
+            }
 
-        with capture_hf_dataset_calls() as captured_calls:
-            task_objects = tm.load_config(task_config)
+            with capture_hf_dataset_calls() as captured_calls:
+                task_objects = tm.load_config(task_config)
 
-            stack = [task_objects]
-            while stack:
-                current = stack.pop()
-                if isinstance(current, dict):
-                    stack.extend(current.values())
-                    continue
-                if hasattr(current, "download") and callable(current.download):
-                    try:
-                        current.download(
-                            download_mode=DownloadMode.REUSE_DATASET_IF_EXISTS
-                        )  # type: ignore[arg-type]
-                    except TypeError as e:
-                        logging.error(
-                            f"Failed to download dataset for task '{task_name}' with download_mode=REUSE_DATASET_IF_EXISTS: {e}"
-                        )
-                        current.download()  # type: ignore[misc]
+                stack = [task_objects]
+                while stack:
+                    current = stack.pop()
+                    if isinstance(current, dict):
+                        stack.extend(current.values())
+                        continue
+                    if hasattr(current, "download") and callable(current.download):
+                        try:
+                            current.download(
+                                download_mode=DownloadMode.REUSE_DATASET_IF_EXISTS
+                            )  # type: ignore[arg-type]
+                        except TypeError as e:
+                            logging.error(
+                                f"Failed to download dataset for task '{task_name}' with download_mode=REUSE_DATASET_IF_EXISTS: {e}"
+                            )
+                            current.download()  # type: ignore[misc]
 
-        if captured_calls:
-            payload = {"calls": dedupe_calls(captured_calls)}
-            task_cache_set_payload("lm-eval", task_name, payload)
-        task_cache_mark_resolved("lm-eval", task_name)
-        logging.debug(f"Finished dataset preparation for task '{task_name}'.")
+            if captured_calls:
+                payload = {"calls": dedupe_calls(captured_calls)}
+                task_cache_set_payload("lm-eval", task_name, payload)
+            task_cache_mark_resolved("lm-eval", task_name)
+            logging.debug(f"Finished dataset preparation for task '{task_name}'.")
 
 
-@filter_tqdm(enabled=True)
 def _pre_download_lighteval_datasets(tasks: Iterable[str]) -> None:
     seen: set[str] = set()
     misses: list[str] = []
     tasks = [str(task).strip() for task in tasks]
-    for task in tasks:
-        if not task or task in seen:
-            continue
-        seen.add(task)
-        if task_cache_lookup("lighteval", task):
-            logging.info(
-                f"Skipping dataset preparation for task '{task}' (cache hit within TTL)."
+    console = get_console()
+    with console.status("Checking lighteval datasets…", spinner="dots") as status:
+        cache_hits = 0
+        for task in tasks:
+            if not task or task in seen:
+                continue
+            seen.add(task)
+            if task_cache_lookup("lighteval", task):
+                cache_hits += 1
+                status.update(
+                    f"Checking lighteval datasets… {cache_hits} cached, {len(misses)} to prepare"
+                )
+                continue
+            misses.append(task)
+            status.update(
+                f"Checking lighteval datasets… {cache_hits} cached, {len(misses)} to prepare"
             )
-            continue
-        misses.append(task)
 
     if not misses:
-        for task in seen:
-            if task_cache_lookup("lighteval", task):
-                prewarm_from_payload(
-                    task_cache_get_payload("lighteval", task),
-                    trust_remote_code=True,
-                )
+        with console.status(
+            f"Using cached lighteval datasets for {len(seen)} tasks…",
+            spinner="dots",
+        ):
+            for task in seen:
+                if task_cache_lookup("lighteval", task):
+                    prewarm_from_payload(
+                        task_cache_get_payload("lighteval", task),
+                        trust_remote_code=True,
+                    )
         return
 
-    for task in misses:
-        with capture_hf_dataset_calls() as captured_calls:
-            from lighteval.tasks.lighteval_task import LightevalTask
-            from lighteval.tasks.registry import (
-                TRUNCATE_FEW_SHOTS_DEFAULTS,
-                Registry,
+    with console.status(
+        f"Preparing lighteval datasets… {len(misses)} remaining",
+        spinner="dots",
+    ) as status:
+        for idx, task in enumerate(misses, 1):
+            status.update(f"Preparing dataset for '{task}' ({idx}/{len(misses)})")
+            with capture_hf_dataset_calls() as captured_calls:
+                from lighteval.tasks.lighteval_task import LightevalTask
+                from lighteval.tasks.registry import (
+                    TRUNCATE_FEW_SHOTS_DEFAULTS,
+                    Registry,
+                )
+
+                reg = Registry(custom_tasks="lighteval.tasks.multilingual.tasks")
+                truncate_default = int(TRUNCATE_FEW_SHOTS_DEFAULTS)
+
+                spec = task
+                if "|" not in spec:
+                    spec = f"lighteval|{spec}|0|{truncate_default}"
+                elif spec.count("|") == 1:
+                    spec = f"{spec}|0|{truncate_default}"
+                elif spec.count("|") == 2:
+                    spec = f"{spec}|{truncate_default}"
+
+                configs = reg.get_tasks_configs(spec)
+                task_dict = reg.get_tasks_from_configs(configs)
+                LightevalTask.load_datasets(task_dict)
+
+            payload = (
+                {"calls": dedupe_calls(captured_calls)}
+                if captured_calls
+                else {"calls": []}
             )
-
-            reg = Registry(custom_tasks="lighteval.tasks.multilingual.tasks")
-            truncate_default = int(TRUNCATE_FEW_SHOTS_DEFAULTS)
-
-            spec = task
-            if "|" not in spec:
-                spec = f"lighteval|{spec}|0|{truncate_default}"
-            elif spec.count("|") == 1:
-                spec = f"{spec}|0|{truncate_default}"
-            elif spec.count("|") == 2:
-                spec = f"{spec}|{truncate_default}"
-
-            configs = reg.get_tasks_configs(spec)
-            task_dict = reg.get_tasks_from_configs(configs)
-            LightevalTask.load_datasets(task_dict)
-
-        payload = (
-            {"calls": dedupe_calls(captured_calls)} if captured_calls else {"calls": []}
-        )
-        task_cache_set_payload("lighteval", task, payload)
-        task_cache_mark_resolved("lighteval", task)
+            task_cache_set_payload("lighteval", task, payload)
+            task_cache_mark_resolved("lighteval", task)
 
 
 @contextmanager
@@ -546,3 +517,13 @@ def capture_third_party_output_from_kwarg(
         return _wrapper
 
     return _decorator
+
+
+def _filter_warnings():
+    """
+    Filters warnings from the lm_eval and lighteval libraries.
+    """
+    import warnings
+
+    warnings.filterwarnings("ignore", module="lm_eval")
+    warnings.filterwarnings("ignore", module="lighteval")
