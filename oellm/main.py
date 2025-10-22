@@ -1,8 +1,8 @@
 import logging
 import os
 import re
-import shutil
 import subprocess
+from dataclasses import dataclass
 from datetime import datetime
 from importlib.resources import files
 from pathlib import Path
@@ -17,6 +17,7 @@ from oellm.task_groups import _expand_task_groups
 from oellm.utils import (
     _ensure_singularity_image,
     _expand_local_model_paths,
+    _filter_warnings,
     _load_cluster_env,
     _num_jobs_in_queue,
     _pre_download_lighteval_datasets,
@@ -25,6 +26,14 @@ from oellm.utils import (
     _setup_logging,
     capture_third_party_output_from_kwarg,
 )
+
+
+@dataclass
+class EvaluationJob:
+    model_path: Path | str
+    task_path: str
+    n_shot: int
+    eval_suite: str
 
 
 @capture_third_party_output_from_kwarg("verbose")
@@ -75,16 +84,20 @@ def schedule_evals(
     _load_cluster_env()
 
     if not skip_checks:
-        image_name = os.environ.get("EVAL_CONTAINER_IMAGE")
-        if image_name is None:
-            raise ValueError(
-                "EVAL_CONTAINER_IMAGE is not set. Please set it in clusters.yaml."
-            )
-
-        _ensure_singularity_image(image_name)
+        _ensure_singularity_image(os.environ.get("EVAL_CONTAINER_IMAGE"))  # type: ignore
     else:
         logging.info("Skipping container image check (--skip-checks enabled)")
 
+    if isinstance(models, str) and models is not None:
+        models = [m.strip() for m in models.split(",") if m.strip()]  # type: ignore
+
+    if isinstance(tasks, str) and tasks is not None:
+        tasks = [t.strip() for t in tasks.split(",") if t.strip()]  # type: ignore
+
+    if isinstance(n_shot, int) and n_shot is not None:
+        n_shot = [n_shot]
+
+    eval_jobs: list[EvaluationJob] = []
     if eval_csv_path:
         if models or tasks or task_groups or n_shot:
             raise ValueError(
@@ -104,133 +117,97 @@ def schedule_evals(
 
         # Always expand local model paths, even with skip_checks
         df["model_path"].unique()
-        expanded_rows = []
-        for _, row in df.iterrows():
-            original_model_path = row["model_path"]
-            local_paths = _expand_local_model_paths(original_model_path)
-            if local_paths:
-                # Use expanded local paths
-                for expanded_path in local_paths:
-                    new_row = row.copy()
-                    new_row["model_path"] = expanded_path
-                    expanded_rows.append(new_row)
-            else:
-                # Keep original path (might be HF model)
-                expanded_rows.append(row)
-        df = pd.DataFrame(expanded_rows)
-
-        if "eval_suite" not in df.columns:
-            df["eval_suite"] = "lm_eval"
-
-        # Download HF models only if skip_checks is False
-        if not skip_checks:
-            # Process any HF models that need downloading
-            hf_models = [m for m in df["model_path"].unique() if not Path(m).exists()]
-            if hf_models:
-                model_path_map = _process_model_paths(hf_models)
-                # Update the dataframe with processed HF models
-                for idx, row in df.iterrows():
-                    if row["model_path"] in model_path_map:
-                        # This shouldn't expand further, just update the path
-                        df.at[idx, "model_path"] = model_path_map[row["model_path"]][0]
-        else:
-            logging.info(
-                "Skipping model path processing and validation (--skip-checks enabled)"
-            )
-
-    elif models and ((tasks and n_shot is not None) or task_groups):
-        model_list = [m.strip() for m in models.split(",") if m.strip()]
-        model_paths: list[Path | str] = []
-
-        # Always expand local paths
-        for model in model_list:
-            local_paths = _expand_local_model_paths(model)
-            if local_paths:
-                model_paths.extend(local_paths)
-            else:
-                model_paths.append(model)
-
-        # Download HF models only if skip_checks is False
-        if not skip_checks:
-            hf_models = [m for m in model_paths if not Path(m).exists()]
-            if hf_models:
-                model_path_map = _process_model_paths(hf_models)
-                # Replace HF model identifiers with processed paths
-                model_paths = [
-                    model_path_map[m][0] if m in model_path_map else m
-                    for m in model_paths
-                ]
-        else:
-            logging.info(
-                "Skipping model path processing and validation (--skip-checks enabled)"
-            )
-
-        rows: list[dict[str, Path | str | int]] = []
-
-        # Handle explicit tasks (lm_eval) with provided n_shot
-        if tasks:
-            if n_shot is None:
-                raise ValueError(
-                    "When specifying `tasks`, you must also provide `n_shot`. For task groups, use `task_groups`."
+        eval_jobs.extend(
+            [
+                EvaluationJob(
+                    model_path=row["model_path"],
+                    task_path=row["task_path"],
+                    n_shot=row["n_shot"],
+                    eval_suite=row["eval_suite"],
                 )
-            tasks_list = [t.strip() for t in tasks.split(",") if t.strip()]
-            shots: list[int]
-            shots = n_shot if isinstance(n_shot, list) else [int(n_shot)]
-            for model_path in model_paths:
-                for task_name in tasks_list:
-                    for s in shots:
-                        rows.append(
-                            {
-                                "model_path": model_path,
-                                "task_path": task_name,
-                                "n_shot": int(s),
-                                "eval_suite": "lm_eval",
-                            }
-                        )
-
-        # Handle task groups
-        if task_groups:
-            group_names = [g.strip() for g in task_groups.split(",") if g.strip()]
-            # import pdb; pdb.set_trace()
-            expanded = _expand_task_groups(group_names)
-            for model_path in model_paths:
-                for task_name, n_shots, suite_name in expanded:
-                    for s in n_shots:
-                        rows.append(
-                            {
-                                "model_path": model_path,
-                                "task_path": task_name,
-                                "n_shot": int(s),
-                                "eval_suite": suite_name,
-                            }
-                        )
-
-        df = pd.DataFrame(
-            rows, columns=["model_path", "task_path", "n_shot", "eval_suite"]
+                for _, row in df.iterrows()
+            ]
         )
+
+    elif models:
+        if task_groups is None:
+            eval_jobs.extend(
+                [
+                    EvaluationJob(
+                        model_path=model,
+                        task_path=task,
+                        n_shot=shot,
+                        eval_suite="lm_eval",
+                    )
+                    for model in models
+                    for task in tasks
+                    for shot in n_shot
+                ]
+            )
+        else:
+            expanded = _expand_task_groups([g.strip() for g in task_groups.split(",")])
+            eval_jobs.extend(
+                [
+                    EvaluationJob(
+                        model_path=model,
+                        task_path=result.task,
+                        n_shot=result.n_shot,
+                        eval_suite=result.suite,
+                    )
+                    for model in models
+                    for result in expanded
+                ]
+            )
+
+    expanded_eval_jobs = []
+    for job in eval_jobs:
+        local_model_paths = _expand_local_model_paths(job.model_path)
+        if not local_model_paths:
+            expanded_eval_jobs.append(job)
+        else:
+            for path in local_model_paths:
+                expanded_eval_jobs.append(
+                    EvaluationJob(
+                        model_path=path,
+                        task_path=job.task_path,
+                        n_shot=job.n_shot,
+                        eval_suite=job.eval_suite,
+                    )
+                )
+
+    if not skip_checks:
+        hub_models: set[str | Path] = {
+            job.model_path
+            for job in expanded_eval_jobs
+            if not Path(job.model_path).exists()
+        }
+        _process_model_paths(hub_models)
     else:
-        raise ValueError(
-            "Provide `eval_csv_path`, or `models` with (`tasks` and `n_shot`) and/or `task_groups`."
+        logging.info(
+            "Skipping model path processing and validation (--skip-checks enabled)"
         )
+
+    # create csv
+    df = pd.DataFrame(expanded_eval_jobs)
 
     if df.empty:
         logging.warning("No evaluation jobs to schedule.")
         return None
 
+    df["eval_suite"] = df["eval_suite"].str.lower()
+
     # Ensure that all datasets required by the tasks are cached locally to avoid
     # network access on compute nodes.
     if not skip_checks:
-        lm_eval_tasks = df[
-            df["eval_suite"].str.lower().isin({"lm_eval", "lm-eval", "lm-eval-harness"})
-        ]["task_path"].unique()
+        lm_eval_tasks = df[df["eval_suite"].isin({"lm-eval-harness"})][
+            "task_path"
+        ].unique()
         if len(lm_eval_tasks) > 0:
             _pre_download_task_datasets(
                 lm_eval_tasks, trust_remote_code=trust_remote_code
             )
         # Pre-download LightEval datasets (best-effort, incremental support)
-        light_eval_tasks = df[
-            df["eval_suite"].str.lower().isin({"lighteval", "light-eval"})
-        ]["task_path"].unique()
+        light_eval_tasks = df[df["eval_suite"].isin({"light-eval"})]["task_path"].unique()
         if len(light_eval_tasks) > 0:
             _pre_download_lighteval_datasets(light_eval_tasks)
     else:
@@ -239,8 +216,9 @@ def schedule_evals(
     if download_only:
         return None
 
-    queue_limit = int(os.environ.get("QUEUE_LIMIT", 250))
-    remaining_queue_capacity = queue_limit - _num_jobs_in_queue()
+    remaining_queue_capacity = (
+        int(os.environ.get("QUEUE_LIMIT", 250)) - _num_jobs_in_queue()
+    )
 
     if remaining_queue_capacity <= 0:
         logging.warning("No remaining queue capacity. Not scheduling any jobs.")
@@ -269,61 +247,24 @@ def schedule_evals(
 
     df.to_csv(csv_path, index=False)
 
-    logging.debug(f"Saved evaluation dataframe to temporary CSV: {csv_path}")
-
     sbatch_template = (files("oellm.resources") / "template.sbatch").read_text()
 
     # Calculate dynamic array size and time limits
     total_evals = len(df)
-
-    # fixed timing estimation
     minutes_per_eval = 10  # Budget 10 minutes per eval
     total_minutes = total_evals * minutes_per_eval
-
-    # Copy LightEval benchmark files into evaluation directory if necessary
-    # TODO: why do we need this?
-    light_eval_paths = df[df["eval_suite"].str.lower().isin({"lighteval", "light-eval"})][
-        "task_path"
-    ].unique()
-    benchmark_dir = evals_dir / "light_eval_tasks"
-    copied_paths: dict[str, str] = {}
-    if light_eval_paths.size > 0:
-        benchmark_dir.mkdir(parents=True, exist_ok=True)
-        for task_path in light_eval_paths:
-            candidate = Path(task_path)
-            if candidate.exists() and candidate.is_file():
-                destination = benchmark_dir / candidate.name
-                shutil.copy(candidate, destination)
-                copied_paths[str(candidate)] = str(destination)
-
-    if copied_paths:
-        df.replace({"task_path": copied_paths}, inplace=True)
-
-    # Maximum runtime per job (18 hours with safety margin)
     max_minutes_per_job = 18 * 60  # 18 hours
     min_array_size_for_time = max(1, int(np.ceil(total_minutes / max_minutes_per_job)))
     desired_array_size = min(128, total_evals) if total_evals >= 128 else total_evals
     if desired_array_size < min_array_size_for_time:
         desired_array_size = min_array_size_for_time
-
-    # The actual array size is limited by queue capacity and total evals
     actual_array_size = min(remaining_queue_capacity, desired_array_size, total_evals)
-
-    # Calculate actual time per job
     evals_per_job = max(1, int(np.ceil(total_evals / actual_array_size)))
     minutes_per_job = evals_per_job * minutes_per_eval
-
-    # Add 20% safety margin and round up to nearest hour
     minutes_with_margin = int(minutes_per_job * 1.2)
     hours_with_margin = max(1, int(np.ceil(minutes_with_margin / 60)))
-
-    # Apply 3-hour safety minimum for array jobs
     hours_with_margin = max(hours_with_margin, 3)
-
-    # Cap at 24 hours
     hours_with_margin = min(hours_with_margin, 23)
-
-    # Format time limit for SLURM (HH:MM:SS)
     time_limit = f"{hours_with_margin:02d}:59:00"
 
     # Log the calculated values
@@ -343,8 +284,6 @@ def schedule_evals(
     )
     logging.info(f"   Time limit with safety margin: {time_limit}")
 
-    # replace the placeholders in the template with the actual values
-    # First, replace python-style placeholders
     sbatch_script = sbatch_template.format(
         csv_path=csv_path,
         max_array_len=max_array_len,
@@ -356,13 +295,10 @@ def schedule_evals(
         time_limit=time_limit,  # Dynamic time limit
     )
 
-    # substitute any $ENV_VAR occurrences (e.g., $TIME_LIMIT) since env vars are not
-    # expanded in the #SBATCH directives
+    # substitute any $ENV_VAR occurrences
     sbatch_script = Template(sbatch_script).safe_substitute(os.environ)
 
-    # Save the sbatch script to the evals directory
     sbatch_script_path = evals_dir / "submit_evals.sbatch"
-    logging.debug(f"Saving sbatch script to {sbatch_script_path}")
 
     with open(sbatch_script_path, "w") as f:
         f.write(sbatch_script)
@@ -555,7 +491,7 @@ def collect_results(
 
         # Print summary statistics
         if verbose:
-            logging.info("\nSummary:")
+            logging.info("Summary:")
             logging.info(f"Unique models: {df['model_name'].nunique()}")
             logging.info(f"Unique tasks: {df['task'].nunique()}")
             logging.info(
@@ -564,7 +500,7 @@ def collect_results(
 
     # Perform check analysis if requested
     if check:
-        logging.info("\n=== Evaluation Status Check ===")
+        logging.info("=== Evaluation Status Check ===")
 
         # Find missing jobs
         missing_jobs = []
@@ -599,7 +535,7 @@ def collect_results(
 
         completed_count = len(jobs_df) - len(missing_jobs)
 
-        logging.info(f"\nTotal scheduled jobs: {len(jobs_df)}")
+        logging.info(f"Total scheduled jobs: {len(jobs_df)}")
         logging.info(f"Completed jobs: {completed_count}")
         logging.info(f"Missing jobs: {len(missing_jobs)}")
 
@@ -607,14 +543,14 @@ def collect_results(
             missing_df = pd.DataFrame(missing_jobs)
             missing_csv = output_csv.replace(".csv", "_missing.csv")
             missing_df.to_csv(missing_csv, index=False)
-            logging.info(f"\nMissing jobs saved to: {missing_csv}")
+            logging.info(f"Missing jobs saved to: {missing_csv}")
             logging.info(
                 f"You can run these with: oellm schedule-eval --eval_csv_path {missing_csv}"
             )
 
             # Show some examples if verbose
             if verbose and len(missing_jobs) > 0:
-                logging.info("\nExample missing jobs:")
+                logging.info("Example missing jobs:")
                 for _i, (_, job) in enumerate(missing_df.head(5).iterrows()):
                     logging.info(
                         f"  - {job['model_path']} | {job['task_path']} | n_shot={job['n_shot']}"
@@ -624,6 +560,7 @@ def collect_results(
 
 
 def main():
+    _filter_warnings()
     auto_cli(
         {
             "schedule-eval": schedule_evals,

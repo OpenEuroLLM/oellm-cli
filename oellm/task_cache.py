@@ -284,21 +284,13 @@ def prewarm_from_payload(payload: dict | None, *, trust_remote_code: bool = True
         if not isinstance(call, dict):
             continue
         # Unified prewarm log message
-        dataset_id = None
         if call.get("type") == "load_dataset":
             path = call.get("path")
             name = call.get("name")
-            dataset_id = f"{path}{'::' + name if name else ''}"
         else:
             repo_id = call.get("repo_id")
             filename = call.get("filename")
-            dataset_id = (
-                f"{repo_id}{'/' + filename if filename else ''}"
-                if isinstance(repo_id, str)
-                else None
-            )
-        if dataset_id:
-            logging.info(f"Prewarming dataset cache: {dataset_id}")
+
         if call.get("type") == "snapshot_download":
             repo_id = call.get("repo_id")
             if isinstance(repo_id, str) and repo_id:

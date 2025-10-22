@@ -1,3 +1,4 @@
+from typing import TypedDict
 from collections.abc import Iterable
 from dataclasses import dataclass
 from importlib.resources import files
@@ -107,25 +108,36 @@ def _parse_task_groups(
     }
 
 
-def _expand_task_groups(group_names: Iterable[str]) -> list[tuple[str, list[int], str]]:
+@dataclass
+class TaskGroupResult:
+    task: str
+    n_shot: int
+    suite: str
+
+
+def _expand_task_groups(group_names: Iterable[str]) -> list[TaskGroupResult]:
     parsed = _parse_task_groups([str(n).strip() for n in group_names if str(n).strip()])
     missing = {str(n).strip() for n in group_names if str(n).strip()} - set(parsed.keys())
     if missing:
         raise ValueError(f"Unknown task group(s): {', '.join(sorted(missing))}")
 
-    results: list[tuple[str, list[int], str]] = []
+    results: list[TaskGroupResult] = []
 
     for _, group in parsed.items():
         if isinstance(group, TaskGroup):
             suite = group.suite
             for t in group.tasks:
                 shots = [int(s) for s in (t.n_shots or [])]
-                results.append((t.name, shots, suite))
+                for shot in shots: 
+                    results.append(TaskGroupResult(task=t.name, n_shot=shot, suite=suite))
         else:
             for g in group.task_groups:
                 suite = g.suite
                 for t in g.tasks:
                     shots = [int(s) for s in (t.n_shots or [])]
-                    results.append((t.name, shots, suite))
+                    for shot in shots:
+                        results.append(
+                            TaskGroupResult(task=t.name, n_shot=shot, suite=suite)
+                        )
 
     return results
