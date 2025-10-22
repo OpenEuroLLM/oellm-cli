@@ -18,7 +18,7 @@ From: rocm/pytorch:rocm6.4.1_ubuntu24.04_py3.12_pytorch_release_2.7.1
 
     # Optional: keep tool envs under /opt to avoid $HOME
     export UV_TOOL_DIR=/opt/uv-tools
-    uv tool install "lighteval[multilingual]"
+    uv tool install --python 3.12 "lighteval[multilingual] @ git+https://github.com/huggingface/lighteval.git@63424f4e795ecc577b90646381b374af3a627978"
     
 %environment
     export PATH=/usr/local/bin:$PATH
