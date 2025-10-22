@@ -134,6 +134,55 @@ task_groups:
       - task: global_mmlu_full_tr
       - task: global_mmlu_full_uk
       - task: global_mmlu_full_he
+  mgsm-eu:
+    description: "EU Language GSM benchmarks in Aya Expanse"
+    suite: lm-eval-harness
+    n_shots: [5]
+    tasks:
+      - task: mgsm_native_cot_en
+      - task: mgsm_native_cot_de
+      - task: mgsm_native_cot_es
+      - task: mgsm_native_cot_fr
+  
+  generic-multilingual:
+    description: "Generic multilingual benchmarks in Aya Expanse"
+    suite: lm-eval-harness
+    n_shots: [0]
+    tasks:
+      - task: xwinograd
+      - task: xcopa
+      - task: xstorycloze
+
+  include: 
+    description: "INCLUDE benchmarks in Aya Expanse"
+    suite: lm-eval-harness
+    n_shots: [0]
+    tasks:
+      - task: include_base_44_albanian
+      - task: include_base_44_armenian
+      - task: include_base_44_azerbaijani
+      - task: include_base_44_basque
+      - task: include_base_44_belarusian
+      - task: include_base_44_bulgarian
+      - task: include_base_44_croatian
+      - task: include_base_44_dutch
+      - task: include_base_44_estonian
+      - task: include_base_44_finnish
+      - task: include_base_44_french
+      - task: include_base_44_georgian
+      - task: include_base_44_german
+      - task: include_base_44_greek
+      - task: include_base_44_hungarian
+      - task: include_base_44_italian
+      - task: include_base_44_lithuanian
+      - task: include_base_44_north macedonian
+      - task: include_base_44_polish
+      - task: include_base_44_portuguese
+      - task: include_base_44_russian
+      - task: include_base_44_serbian
+      - task: include_base_44_spanish
+      - task: include_base_44_turkish
+      - task: include_base_44_ukrainian
 
 super_groups:
   oellm-multilingual:
@@ -143,3 +192,6 @@ super_groups:
       - task: flores-200-eng-to-eu
       - task: belebele-eu-5-shot
       - task: global-mmlu-eu
+      - task: mgsm-eu
+      - task: generic-multilingual
+      - task: include
