@@ -122,7 +122,7 @@ do
                         LIGHT_TASK_ARG="$LIGHT_TASK"
                     fi
                 else
-                    LIGHT_TASK_ARG="${{LIGHT_TASK}}|$n_shot"
+                    LIGHT_TASK_ARG="lighteval|${{LIGHT_TASK}}|$n_shot|0"
                 fi
             fi
 
@@ -135,8 +135,8 @@ do
                 lighteval accelerate \
                     "model_name=$model_path,trust_remote_code=True" \
                     "$LIGHT_TASK_ARG" \
-                    --output-dir "$RESULTS_SUBDIR" \
-                    --save-details
+                    --custom-tasks lighteval.tasks.multilingual.tasks \
+                    --output-dir "$RESULTS_SUBDIR"
             ;;
         *)
             echo "[warning] Unknown evaluation suite '$eval_suite'. Skipping."
