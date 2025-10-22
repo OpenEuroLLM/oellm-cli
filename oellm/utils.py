@@ -26,10 +26,80 @@ from oellm.task_cache import (
 )
 
 
+@contextmanager
+def suppress_tqdm_rendering(enabled: bool = True):
+    """
+    Temporarily suppresses tqdm progress bar rendering when enabled=True.
+
+    This prevents any visual rendering by overriding the class methods
+    responsible for output, without altering other behavior.
+    """
+    if not enabled:
+        yield
+        return
+
+    import tqdm as _tqdm
+    from tqdm import auto as _tqdm_auto
+
+    classes = [_tqdm.tqdm, _tqdm_auto.tqdm]
+    seen: set[int] = set()
+    patched: list[tuple[object, str, object]] = []
+
+    for cls in classes:
+        cid = id(cls)
+        if cid in seen:
+            continue
+        seen.add(cid)
+
+        if hasattr(cls, "display"):
+            orig_display = cls.display  # type: ignore[attr-defined]
+
+            def _noop_display(self, *args, **kwargs):
+                return None
+
+            cls.display = _noop_display  # type: ignore[assignment]
+            patched.append((cls, "display", orig_display))
+
+        if hasattr(cls, "refresh"):
+            orig_refresh = cls.refresh  # type: ignore[attr-defined]
+
+            def _noop_refresh(self, *args, **kwargs):
+                return None
+
+            cls.refresh = _noop_refresh  # type: ignore[assignment]
+            patched.append((cls, "refresh", orig_refresh))
+
+    try:
+        yield
+    finally:
+        for cls, name, orig in patched:
+            setattr(cls, name, orig)
+
+
+def filter_tqdm(enabled: bool = True):
+    """
+    Decorator factory to suppress tqdm rendering for the wrapped function
+    when enabled=True.
+    """
+
+    def _decorator(func):
+        @wraps(func)
+        def _wrapper(*args, **kwargs):
+            with suppress_tqdm_rendering(enabled=enabled):
+                return func(*args, **kwargs)
+
+        return _wrapper
+
+    return _decorator
+
+
+@filter_tqdm(enabled=False)
 def _ensure_singularity_image(image_name: str) -> None:
     from huggingface_hub import hf_hub_download
 
     image_path = Path(os.getenv("EVAL_BASE_DIR")) / image_name
+
+    logging.info(f"Downloading latest Singularity image from HuggingFace: {image_name}")
 
     try:
         hf_hub_download(
@@ -187,6 +257,7 @@ def _expand_local_model_paths(model: str) -> list[Path]:
     return model_paths
 
 
+@filter_tqdm(enabled=True)
 def _process_model_paths(models: Iterable[str]) -> dict[str, list[Path | str]]:
     """
     Processes model strings into a dict of model paths.
@@ -251,6 +322,7 @@ def _process_model_paths(models: Iterable[str]) -> dict[str, list[Path | str]]:
     return processed_model_paths
 
 
+@filter_tqdm(enabled=True)
 def _pre_download_task_datasets(
     tasks: Iterable[str], trust_remote_code: bool = True
 ) -> None:
@@ -319,6 +391,7 @@ def _pre_download_task_datasets(
         logging.debug(f"Finished dataset preparation for task '{task_name}'.")
 
 
+@filter_tqdm(enabled=True)
 def _pre_download_lighteval_datasets(tasks: Iterable[str]) -> None:
     seen: set[str] = set()
     misses: list[str] = []
