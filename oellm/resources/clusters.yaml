@@ -10,7 +10,7 @@ shared:
 
 leonardo:
   hostname_pattern: "*.leonardo.local"  # use this regexp to automatically assign environment variables corresponding to this YAML
-  EVAL_BASE_DIR: "/leonardo_work/AIFAC_L01_028/shared_evals"
+  EVAL_BASE_DIR: "/leonardo_work/AIFAC_L01_028/oellm-cli-shared-evals"
   PARTITION: "boost_usr_prod"  # default partition to use
   ACCOUNT: "AIFAC_L01_028"  # default account to use
   QUEUE_LIMIT: 1000  # maximum number of jobs that can be submitted as job/array, used to send only jobs that respects QOS
@@ -28,7 +28,7 @@ jureca:
 
 lumi:
   hostname_pattern: "uan*"
-  EVAL_BASE_DIR: "/pfs/lustrep4/scratch/project_462000963/shared_evals"
+  EVAL_BASE_DIR: "/pfs/lustrep4/scratch/project_462000963/oellm-cli-shared-evals"
   PARTITION: "small-g"
   ACCOUNT: "project_462000963"
   QUEUE_LIMIT: 210
