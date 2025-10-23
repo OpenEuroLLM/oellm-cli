@@ -434,13 +434,88 @@ def collect_results(
         results = data.get("results", {})
         n_shot_data = data.get("n-shot", {})
 
+        # Infer a global n_shot if exactly one unique value exists in this JSON
+        global_n_shot = None
+        try:
+            candidate_values = []
+            for _v in n_shot_data.values():
+                if isinstance(_v, (int | float)):
+                    candidate_values.append(int(_v))
+                elif isinstance(_v, str) and _v.isdigit():
+                    candidate_values.append(int(_v))
+            unique_values = set(candidate_values)
+            if len(unique_values) == 1:
+                global_n_shot = next(iter(unique_values))
+        except Exception:
+            pass
+
+        # Aggregate groups (lm-eval harness)
+        groups_map = data.get("groups", {})
+        group_subtasks_map = data.get("group_subtasks", {})
+        group_aggregate_names = set(groups_map.keys()) | set(group_subtasks_map.keys())
+        group_subtask_names: set[str] = set()
+        for _agg, _subs in group_subtasks_map.items():
+            for _s in _subs:
+                group_subtask_names.add(_s)
+
+        # Prefer only the first aggregate metric from groups (simplified)
+        if groups_map:
+            group_name, group_results = next(iter(groups_map.items()))
+            n_shot = n_shot_data.get(group_name, "unknown")
+            if n_shot == "unknown":
+                for subtask_name in group_subtasks_map.get(group_name, []):
+                    if subtask_name in n_shot_data:
+                        n_shot = n_shot_data[subtask_name]
+                        break
+            if n_shot == "unknown" and global_n_shot is not None:
+                n_shot = global_n_shot
+            performance = group_results.get("acc,none")
+            if performance is None:
+                for metric in ["acc", "accuracy", "f1", "exact_match"]:
+                    if metric in group_results:
+                        performance = group_results[metric]
+                        break
+            if performance is not None:
+                if check:
+                    completed_jobs.add((model_name, group_name, n_shot))
+                rows.append(
+                    {
+                        "model_name": model_name,
+                        "task": group_name,
+                        "n_shot": n_shot,
+                        "performance": performance,
+                    }
+                )
+                # Skip per-task iteration when groups are present
+                continue
+
         for task_name, task_results in results.items():
+            # Skip entries already added from groups
+            if groups_map and task_name in group_aggregate_names:
+                continue
+            # Skip any lm-eval group subtasks; keep only aggregates
+            if task_name in group_subtask_names:
+                continue
+
             # Skip MMLU subtasks - only keep the aggregate score
             if task_name.startswith("mmlu_") and task_name != "mmlu":
                 continue
 
+            # Skip Global MMLU subtasks - keep only aggregates like global_mmlu_full_pt
+            if task_name.startswith("global_mmlu_") and task_name.count("_") >= 4:
+                continue
+
             # Get n_shot for this task
             n_shot = n_shot_data.get(task_name, "unknown")
+
+            # If this is a group aggregate and n_shot is missing, derive from any subtask
+            if task_name in group_aggregate_names and n_shot == "unknown":
+                for subtask_name in group_subtasks_map.get(task_name, []):
+                    if subtask_name in n_shot_data:
+                        n_shot = n_shot_data[subtask_name]
+                        break
+            if n_shot == "unknown" and global_n_shot is not None:
+                n_shot = global_n_shot
 
             # Special handling for MMLU aggregate - get n_shot from any MMLU subtask
             if task_name == "mmlu" and n_shot == "unknown":
@@ -448,6 +523,18 @@ def collect_results(
                     if key.startswith("mmlu_"):
                         n_shot = value
                         break
+                if n_shot == "unknown" and global_n_shot is not None:
+                    n_shot = global_n_shot
+
+            # Special handling for Global MMLU aggregates - get n_shot from subtasks
+            if task_name.startswith("global_mmlu_") and n_shot == "unknown":
+                prefix = f"{task_name}_"
+                for key, value in n_shot_data.items():
+                    if key.startswith(prefix):
+                        n_shot = value
+                        break
+                if n_shot == "unknown" and global_n_shot is not None:
+                    n_shot = global_n_shot
 
             # Get the primary metric (usually acc,none)
             performance = task_results.get("acc,none")
