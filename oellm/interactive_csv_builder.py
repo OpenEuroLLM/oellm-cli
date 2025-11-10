@@ -1,5 +1,6 @@
 import signal
 import sys
+from importlib.resources import files
 from pathlib import Path
 
 import pandas as pd
@@ -11,8 +12,6 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
-
-from .task_groups import resolve_task_group
 
 
 def build_csv_interactive(output_path: str = "eval_config.csv") -> None:
@@ -60,10 +59,8 @@ def build_csv_interactive(output_path: str = "eval_config.csv") -> None:
     # Step 1: Get models with enhanced input
     console.print("\n[bold cyan]📦 Step 1: Add Models[/bold cyan]")
 
-    models: list[str] = []
+    models = []
     add_more = True
-
-    existing_group_entries: set[tuple[str, tuple[int, ...]]] = set()
 
     while add_more:
         try:
@@ -119,19 +116,16 @@ def build_csv_interactive(output_path: str = "eval_config.csv") -> None:
     # Step 2: Configure tasks
     console.print("\n[bold cyan]📝 Step 2: Configure Tasks[/bold cyan]")
 
-    task_configs: list[tuple[str, list[int]]] = []
+    task_configs: list[tuple[str, list[int], str]] = []
     add_more = True
 
-    # Load task groups from YAML file
-    task_groups_file = Path(__file__).parent / "task-groups.yaml"
+    # Load task groups from packaged resources
     task_groups = {}
-    if task_groups_file.exists():
-        try:
-            with open(task_groups_file) as f:
-                data = yaml.safe_load(f)
-                task_groups = data.get("task_groups", {})
-        except Exception as e:
-            console.print(f"[yellow]Warning: Could not load task groups: {e}[/yellow]")
+    try:
+        data = yaml.safe_load((files("oellm.resources") / "task-groups.yaml").read_text())
+        task_groups = data.get("task_groups", {})
+    except Exception as e:
+        console.print(f"[yellow]Warning: Could not load task groups: {e}[/yellow]")
 
     while add_more:
         choices = [
@@ -190,34 +184,16 @@ def build_csv_interactive(output_path: str = "eval_config.csv") -> None:
                 # Add tasks from selected groups
                 for selection in selected_groups:
                     group_name = selection.split(" - ")[0]
-                    try:
-                        group_tasks = resolve_task_group(
-                            group_name, task_groups, console
-                        )
-                    except ValueError as exc:
-                        console.print(f"[red]{exc}[/red]")
-                        continue
-
-                    if not group_tasks:
-                        console.print(
-                            f"[yellow]No tasks found for task group '{group_name}'.[/yellow]"
-                        )
-                        continue
+                    group_data = task_groups[group_name]
 
                     console.print(f"\n[cyan]Adding tasks from '{group_name}':[/cyan]")
-                    for task_item in group_tasks:
+                    for task_item in group_data.get("tasks", []):
                         task_name = task_item["task"]
                         n_shots = task_item.get("n_shots", [0])
-                        entry_key = (task_name, tuple(n_shots))
-                        if entry_key in existing_group_entries:
-                            console.print(
-                                f"  [yellow]• Skipping duplicate: {task_name} with n_shot={n_shots}[/yellow]"
-                            )
-                            continue
-                        existing_group_entries.add(entry_key)
-                        task_configs.append((task_name, n_shots))
+                        suite = task_item.get("suite", "lm_eval")
+                        task_configs.append((task_name, n_shots, suite))
                         console.print(
-                            f"  [green]✓ Added: {task_name} with n_shot={n_shots}[/green]"
+                            f"  [green]✓ Added: {task_name} (suite={suite}) with n_shot={n_shots}[/green]"
                         )
 
                 # After adding task groups, ask if user wants to add more or proceed
@@ -282,19 +258,53 @@ def build_csv_interactive(output_path: str = "eval_config.csv") -> None:
 
                 try:
                     n_shots = [int(x.strip()) for x in n_shots_str.split(",")]
-                    entry_key = (task, tuple(n_shots))
-                    existing_group_entries.add(entry_key)
-                    task_configs.append((task, n_shots))
+                    suite_choice = questionary.select(
+                        f"Select evaluation suite for '{task}':",
+                        choices=[
+                            questionary.Choice(
+                                "lm_eval (lm-eval-harness)", value="lm_eval"
+                            ),
+                            questionary.Choice(
+                                "lighteval (Hugging Face LightEval)",
+                                value="lighteval",
+                            ),
+                            "📝 Custom suite",
+                        ],
+                        style=custom_style,
+                    ).ask()
+
+                    if suite_choice is None:
+                        console.print("\n[yellow]Cancelled by user.[/yellow]")
+                        return
+
+                    if suite_choice == "📝 Custom suite":
+                        suite = questionary.text(
+                            "Enter suite identifier:",
+                            instruction="(e.g., custom-eval-suite)",
+                            style=custom_style,
+                        ).ask()
+                        if suite is None:
+                            console.print("\n[yellow]Cancelled by user.[/yellow]")
+                            return
+                        suite = suite.strip()
+                        if not suite:
+                            suite = "lm_eval"
+                    else:
+                        suite = suite_choice
+
+                    task_configs.append((task, n_shots, suite))
                     console.print(
-                        f"[green]✓ Added: {task} with n_shot={n_shots}[/green]"
+                        f"[green]✓ Added: {task} (suite={suite}) with n_shot={n_shots}[/green]"
                     )
                 except ValueError:
                     console.print("[red]Invalid n_shot values. Skipping.[/red]")
 
         elif action == "📋 View current tasks":
             console.print("\n[bold]Current tasks:[/bold]")
-            for i, (task, n_shots) in enumerate(task_configs, 1):
-                console.print(f"  {i}. [green]{task}[/green] → n_shot={n_shots}")
+            for i, (task, n_shots, suite) in enumerate(task_configs, 1):
+                console.print(
+                    f"  {i}. [green]{task}[/green] → n_shot={n_shots} (suite={suite})"
+                )
             console.print()
 
         elif action == "✅ Continue to preview":
@@ -310,10 +320,15 @@ def build_csv_interactive(output_path: str = "eval_config.csv") -> None:
 
         rows = []
         for model in models:
-            for task_name, n_shots in task_configs:
+            for task_name, n_shots, suite in task_configs:
                 for n_shot in n_shots:
                     rows.append(
-                        {"model_path": model, "task_path": task_name, "n_shot": n_shot}
+                        {
+                            "model_path": model,
+                            "task_path": task_name,
+                            "n_shot": n_shot,
+                            "eval_suite": suite,
+                        }
                     )
 
         df = pd.DataFrame(rows)
@@ -327,11 +342,16 @@ def build_csv_interactive(output_path: str = "eval_config.csv") -> None:
     table.add_column("Model", style="cyan", no_wrap=True)
     table.add_column("Task", style="green")
     table.add_column("n_shot", justify="right", style="yellow")
+    table.add_column("Suite", style="magenta")
 
     # Show first 10 rows
     for idx, (_, row) in enumerate(df.head(10).iterrows(), 1):
         table.add_row(
-            str(idx), str(row["model_path"]), str(row["task_path"]), str(row["n_shot"])
+            str(idx),
+            str(row["model_path"]),
+            str(row["task_path"]),
+            str(row["n_shot"]),
+            str(row["eval_suite"]),
         )
 
     if len(df) > 10:

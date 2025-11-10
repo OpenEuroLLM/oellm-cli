@@ -2,24 +2,37 @@ Bootstrap: docker
 From: nvcr.io/nvidia/pytorch:25.06-py3
 
 %labels
-    Author      multi-cluster-eval
-    Description Apptainer image for JURECA cluster (converted from dockerfile)
+    Author      oellm-cli
+    Description Apptainer image for JURECA JSC cluster
 
 %post
-    # 1. Install uv package manager
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-    echo 'export PATH=$HOME/.local/bin:$PATH' >> /etc/profile
+    # Install uv into a global bin
+    curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 
-    # Make uv visible for subsequent commands during build
-    export PATH=/root/.local/bin:$PATH
+    # Put uv-installed tool shims in a global bin too
+    export UV_TOOL_BIN_DIR=/usr/local/bin
+    uv --version
 
-    # 2. Install Python dependencies
     uv pip install --system --break-system-packages lm-eval \
         "transformers<=4.53.0" "datasets<4.0.0" wandb sentencepiece tiktoken accelerate
 
+    # Optional: keep tool envs under /opt to avoid $HOME
+    export UV_TOOL_DIR=/opt/uv-tools
+    uv tool install --python 3.12 "lighteval[multilingual] @ git+https://github.com/huggingface/lighteval.git@63424f4e795ecc577b90646381b374af3a627978"
+    uv pip install --system --break-system-packages nltk
+    mkdir -p /opt/nltk_data
+    python - <<'PY'
+import nltk
+nltk.download('punkt', download_dir='/opt/nltk_data')
+nltk.download('punkt_tab', download_dir='/opt/nltk_data')
+PY
+
 %environment
-    # Ensure uv is present inside the container runtime as well
-    export PATH=/root/.local/bin:$PATH
+    export PATH=/usr/local/bin:$PATH
+    export UV_TOOL_BIN_DIR=/usr/local/bin
+    export UV_TOOL_DIR=/opt/uv-tools
+    export NLTK_DATA=/opt/nltk_data
+
 
 %runscript
     exec bash "$@"

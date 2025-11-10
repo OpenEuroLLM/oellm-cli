@@ -1,409 +1,46 @@
 import logging
 import os
 import re
-import socket
 import subprocess
+from dataclasses import dataclass
 from datetime import datetime
-from itertools import product
+from importlib.resources import files
 from pathlib import Path
 from string import Template
-from typing import Iterable
 
 import numpy as np
 import pandas as pd
-import yaml
 from jsonargparse import auto_cli
-from rich import box
-from rich.console import Console
-from rich.logging import RichHandler
 
-from .task_groups import flatten_task_groups, load_task_groups
-
-
-def ensure_singularity_image(image_name: str) -> None:
-    # TODO: switch to OELLM dataset repo once it is created
-    from huggingface_hub import hf_hub_download
-
-    hf_repo = os.environ.get("HF_SIF_REPO", "openeurollm/evaluation_singularity_images")
-    eval_base_dir = os.getenv("EVAL_BASE_DIR")
-    if eval_base_dir is None:
-        raise ValueError(
-            "EVAL_BASE_DIR is not set. Please configure it in clusters.yaml or the environment."
-        )
-
-    image_path = Path(eval_base_dir) / image_name
-
-    try:
-        hf_hub_download(
-            repo_id=hf_repo,
-            filename=image_name,
-            repo_type="dataset",
-            local_dir=eval_base_dir,
-        )
-        logging.info(
-            "Successfully downloaded latest Singularity image from HuggingFace"
-        )
-    except Exception as e:
-        logging.warning(
-            "Failed to fetch latest container image from HuggingFace: %s", str(e)
-        )
-        if image_path.exists():
-            logging.info("Using existing Singularity image at %s", image_path)
-        else:
-            raise RuntimeError(
-                f"No container image found at {image_path} and failed to download from HuggingFace. "
-                f"Cannot proceed with evaluation scheduling."
-            ) from e
-
-    logging.info(
-        "Singularity image ready at %s",
-        Path(eval_base_dir) / image_name,
-    )
-
-
-def _setup_logging(verbose: bool = False):
-    rich_handler = RichHandler(
-        console=Console(),
-        show_time=True,
-        log_time_format="%H:%M:%S",
-        show_path=False,
-        markup=True,
-        rich_tracebacks=True,
-    )
-
-    class RichFormatter(logging.Formatter):
-        def format(self, record):
-            # Define colors for different log levels
-            record.msg = f"{record.getMessage()}"
-            return record.msg
-
-    rich_handler.setFormatter(RichFormatter())
-
-    root_logger = logging.getLogger()
-    root_logger.handlers = []  # Remove any default handlers
-    root_logger.addHandler(rich_handler)
-    root_logger.setLevel(logging.DEBUG if verbose else logging.INFO)
-
-
-def _load_cluster_env() -> None:
-    """
-    Loads the correct cluster environment variables from `clusters.yaml` based on the hostname.
-    """
-    with open(Path(__file__).parent / "clusters.yaml") as f:
-        clusters = yaml.safe_load(f)
-    hostname = socket.gethostname()
-
-    # First load shared environment variables
-    shared_cfg = clusters.get("shared", {})
-
-    # match hostname to the regex in the clusters.yaml
-    for host in set(clusters.keys()) - {"shared"}:
-        pattern = clusters[host]["hostname_pattern"]
-        # Convert shell-style wildcards to regex
-        regex_pattern = pattern.replace(".", r"\.").replace("*", ".*")
-        if re.match(f"^{regex_pattern}$", hostname):
-            cluster_cfg = clusters[host]
-            break
-    else:
-        raise ValueError(f"No cluster found for hostname: {hostname}")
-
-    # Combine shared and cluster-specific configs, with cluster-specific taking precedence
-    # Remove hostname_pattern from the final config
-    if "hostname_pattern" in cluster_cfg:
-        del cluster_cfg["hostname_pattern"]
-
-    # Set environment variables, expanding any template variables
-    for k, v in cluster_cfg.items():
-        # Expand template variables using existing environment variables
-        os.environ[k] = str(v)
-
-    for k, v in shared_cfg.items():
-        try:
-            os.environ[k] = str(v).format(**cluster_cfg)
-        except KeyError as e:
-            # when substituting env vars that are not in cluster_cfg but in the environment (e.g., $USER, $SHELL, etc...)
-            if len(e.args) > 1:
-                raise ValueError(
-                    f"Env. variable substitution for {k} failed. Missing keys: {', '.join(e.args)}"
-                ) from e
-
-            missing_key: str = e.args[0]
-            os.environ[k] = str(v).format(
-                **cluster_cfg, **{missing_key: os.environ[missing_key]}
-            )
-
-
-def _num_jobs_in_queue() -> int:
-    # TODO avoid running in shell mode which is not secure
-    result = subprocess.run(
-        "squeue -u $USER -h -t pending,running -r | wc -l",
-        shell=True,
-        capture_output=True,
-        text=True,
-    )
-
-    if result.stdout:
-        try:
-            return int(result.stdout.strip())
-        except ValueError:
-            logging.warning(f"Could not parse squeue output: {result.stdout}")
-            return 0
-
-    if result.stderr:
-        logging.warning(f"squeue command produced an error: {result.stderr.strip()}")
-
-    return 0
-
-
-def _expand_local_model_paths(model: str) -> list[Path]:
-    """
-    Expands a local model path to include all checkpoints if it's a directory.
-    Recursively searches for models in subdirectories.
-
-    Args:
-        model: Path to a model or directory containing models
-
-    Returns:
-        List of paths to model directories containing safetensors files
-    """
-    model_paths: list[Path] = []
-    model_path = Path(model)
-
-    if not model_path.exists() or not model_path.is_dir():
-        return model_paths
-
-    # First check if current directory contains safetensors files
-    if any(model_path.glob("*.safetensors")):
-        model_paths.append(model_path)
-        # If current dir has safetensors, don't recurse further
-        return model_paths
-
-    # Check for hf subdirectory pattern (single model with checkpoints)
-    hf_path = model_path / "hf"
-    if hf_path.exists() and hf_path.is_dir():
-        # This is a single model with checkpoints in hf/iter_* structure
-        for subdir in hf_path.glob("*"):
-            if subdir.is_dir() and any(subdir.glob("*.safetensors")):
-                model_paths.append(subdir)
-        if model_paths:
-            return model_paths
-
-    # Check if subdirectories look like model directories
-    # (e.g., open-sci-ref_model-0.13b_data-c4_...)
-    subdirs = [d for d in model_path.iterdir() if d.is_dir()]
-
-    # Process each subdirectory as a potential model
-    for subdir in subdirs:
-        # Check if this subdirectory directly contains safetensors
-        if any(subdir.glob("*.safetensors")):
-            model_paths.append(subdir)
-        else:
-            # Check for hf/iter_* pattern in this subdirectory
-            hf_subpath = subdir / "hf"
-            if hf_subpath.exists() and hf_subpath.is_dir():
-                for checkpoint_dir in hf_subpath.glob("*"):
-                    if checkpoint_dir.is_dir() and any(
-                        checkpoint_dir.glob("*.safetensors")
-                    ):
-                        model_paths.append(checkpoint_dir)
-
-    if len(model_paths) > 1:
-        logging.info(f"Expanded '{model}' to {len(model_paths)} model checkpoints")
-
-    return model_paths
-
-
-def _process_model_paths(models: Iterable[str]) -> dict[str, list[str]]:
-    """
-    Processes model strings into a dict of model paths.
-
-    Each model string can be a local path or a huggingface model identifier.
-    This function expands directory paths that contain multiple checkpoints.
-    """
-    from huggingface_hub import snapshot_download
-
-    processed_model_paths: dict[str, list[str]] = {}
-    for model in models:
-        model_paths: list[str] = []
-        # First try to expand local paths
-        local_paths = _expand_local_model_paths(model)
-        if local_paths:
-            model_paths.extend(str(path) for path in local_paths)
-        else:
-            logging.info(
-                f"Model {model} not found locally, assuming it is a 🤗 hub model"
-            )
-            logging.debug(
-                f"Downloading model {model} on the login node since the compute nodes may not have access to the internet"
-            )
-
-            if "," in model:
-                model_kwargs = dict(
-                    [kv.split("=") for kv in model.split(",") if "=" in kv]
-                )
-
-                # The first element before the comma is the repository ID on the 🤗 Hub
-                repo_id = model.split(",")[0]
-
-                # snapshot_download kwargs
-                snapshot_kwargs = {}
-                if "revision" in model_kwargs:
-                    snapshot_kwargs["revision"] = model_kwargs["revision"]
-
-                try:
-                    # Pre-download (or reuse cache) for the whole repository so that
-                    # compute nodes can load it offline.
-                    hf_home = os.getenv("HF_HOME")
-                    if hf_home is None:
-                        raise ValueError(
-                            "HF_HOME is not set. Please configure it before scheduling evals."
-                        )
-                    cache_dir = Path(hf_home) / "hub"
-
-                    snapshot_download(
-                        repo_id=repo_id,
-                        cache_dir=cache_dir,
-                        **snapshot_kwargs,
-                    )
-                    model_paths.append(model)
-                except Exception as e:
-                    logging.debug(
-                        f"Failed to download model {model} from Hugging Face Hub. Continuing..."
-                    )
-                    logging.debug(e)
-            else:
-                # Download the entire model repository to the local cache.  The
-                # original identifier is kept in *model_paths* so downstream
-                # code can still reference it; at runtime the files will be
-                # read from cache, allowing offline execution.
-                hf_home = os.getenv("HF_HOME")
-                if hf_home is None:
-                    raise ValueError(
-                        "HF_HOME is not set. Please configure it before scheduling evals."
-                    )
-                cache_dir = Path(hf_home) / "hub"
-
-                snapshot_download(
-                    repo_id=model,
-                    cache_dir=cache_dir,
-                )
-                model_paths.append(model)
-
-        if not model_paths:
-            logging.warning(
-                f"Could not find any valid model for '{model}'. It will be skipped."
-            )
-        processed_model_paths[model] = model_paths
-    return processed_model_paths
-
-
-def _count_task_subtasks(task_name: str, task_manager) -> int:
-    from lm_eval.evaluator_utils import get_subtask_list  # type: ignore
-
-    task_objects = task_manager.load_task_or_group(task_name)
-    subtask_dict = get_subtask_list(task_objects)
-
-    total_subtasks = 0
-    for _, subtask_list in subtask_dict.items():
-        total_subtasks += len(subtask_list)
-
-    return max(1, total_subtasks)  # At least 1 subtask
-
-
-def _calculate_task_minutes(
-    task_name: str, task_manager, base_minutes_per_subtask: int = 5
-) -> int:
-    """Calculate estimated minutes for a task based on its subtask count."""
-    subtask_count = _count_task_subtasks(task_name, task_manager)
-
-    # Special handling for known multi-language tasks that take longer per subtask
-    known_complex_tasks = {
-        "belebele": 8,  # Multi-language reading comprehension, slower per subtask
-        "flores": 6,  # Translation task, moderately complex
-        "xnli": 6,  # Cross-lingual NLI
-        "xcopa": 6,  # Cross-lingual COPA
-        "xstory_cloze": 6,  # Cross-lingual story cloze
-        "paws-x": 6,  # Cross-lingual paraphrase detection
-        "hellaswag": 20,  # Hellaswag task, needs 20 minutes per subtask
-    }
-
-    # Use task-specific timing if available, otherwise use default
-    minutes_per_subtask = known_complex_tasks.get(
-        task_name.lower(), base_minutes_per_subtask
-    )
-
-    # Calculate total time: (subtasks × time_per_subtask) + base_overhead
-    base_overhead = 3  # Base overhead for task setup/teardown
-    total_minutes = max(10, (subtask_count * minutes_per_subtask) + base_overhead)
-
-    # Log for complex tasks (>5 subtasks) or any known complex task
-    if subtask_count > 5 or task_name.lower() in known_complex_tasks:
-        complexity_note = (
-            f" (known complex task, {minutes_per_subtask} min/subtask)"
-            if task_name.lower() in known_complex_tasks
-            else ""
-        )
-        logging.info(
-            f"📊 Task '{task_name}' has {subtask_count} subtasks{complexity_note}, "
-            f"estimated time: {total_minutes} minutes ({total_minutes / 60:.1f} hours)"
-        )
-
-    return total_minutes
-
-
-def _pre_download_task_datasets(
-    tasks: Iterable[str], trust_remote_code: bool = True
-) -> None:
-    """Ensure that all datasets required by the given `tasks` are present in the local 🤗 cache at $HF_HOME."""
-
-    from datasets import DownloadMode  # type: ignore
-    from lm_eval.tasks import TaskManager  # type: ignore
-
-    processed: set[str] = set()
-
-    tm = TaskManager()
-
-    for task_name in tasks:
-        if not isinstance(task_name, str) or task_name in processed:
-            continue
-        processed.add(task_name)
-
-        logging.info(
-            f"Preparing dataset for task '{task_name}' (download if not cached)…"
-        )
-
-        # Instantiating the task downloads the dataset (or reuses cache)
-
-        task_config = {
-            "task": task_name,
-            "dataset_kwargs": {"trust_remote_code": trust_remote_code},
-        }
-
-        task_objects = tm.load_config(task_config)
-
-        # Some entries might be nested dictionaries (e.g., groups)
-        stack = [task_objects]
-        while stack:
-            current = stack.pop()
-            if isinstance(current, dict):
-                stack.extend(current.values())
-                continue
-            if hasattr(current, "download") and callable(current.download):
-                try:
-                    current.download(download_mode=DownloadMode.REUSE_DATASET_IF_EXISTS)  # type: ignore[arg-type]
-                except TypeError as e:
-                    logging.error(
-                        f"Failed to download dataset for task '{task_name}' with download_mode=REUSE_DATASET_IF_EXISTS: {e}"
-                    )
-                    current.download()  # type: ignore[misc]
-
-        logging.debug(f"Finished dataset preparation for task '{task_name}'.")
-
-
+from oellm.task_cache import clear_task_cache
+from oellm.task_groups import _expand_task_groups
+from oellm.utils import (
+    _ensure_singularity_image,
+    _expand_local_model_paths,
+    _filter_warnings,
+    _load_cluster_env,
+    _num_jobs_in_queue,
+    _pre_download_lighteval_datasets,
+    _pre_download_task_datasets,
+    _process_model_paths,
+    _setup_logging,
+    capture_third_party_output_from_kwarg,
+)
+
+
+@dataclass
+class EvaluationJob:
+    model_path: Path | str
+    task_path: str
+    n_shot: int
+    eval_suite: str
+
+
+@capture_third_party_output_from_kwarg("verbose")
 def schedule_evals(
     models: str | None = None,
     tasks: str | None = None,
-    task_group: str | None = None,
+    task_groups: str | None = None,
     n_shot: int | list[int] | None = None,
     eval_csv_path: str | None = None,
     *,
@@ -427,13 +64,13 @@ def schedule_evals(
               all models in subdirectories will be automatically discovered
             - For each model directory, if it has an `hf/iter_XXXXX` structure, all checkpoints will be expanded
             - This allows passing a single directory containing multiple models to evaluate them all
-        tasks: A string of comma-separated task paths.
-        task_group: Name(s) of task groups defined in ``task-groups.yaml`` to expand.
-            Multiple groups can be provided as a comma-separated string. Cannot be used
-            together with ``tasks`` or ``n_shot``.
-        n_shot: An integer or list of integers specifying the number of shots for each task.
+        tasks: A string of comma-separated task names (lm_eval) or paths.
+            Requires `n_shot` to be provided. Tasks here are assumed to be lm_eval unless otherwise handled via CSV.
+        task_groups: A string of comma-separated task group names defined in `task-groups.yaml`.
+            Each group expands into concrete (task, n_shots, suite) entries; `n_shot` is ignored for groups.
+        n_shot: An integer or list of integers specifying the number of shots applied to `tasks`.
         eval_csv_path: A path to a CSV file containing evaluation data.
-            Warning: exclusive argument. Cannot specify `models`, `tasks`, or `n_shot` when `eval_csv_path` is provided.
+            Warning: exclusive argument. Cannot specify `models`, `tasks`, `task_groups`, or `n_shot` when `eval_csv_path` is provided.
         max_array_len: The maximum number of jobs to schedule to run concurrently.
             Warning: this is not the number of jobs in the array job. This is determined by the environment variable `QUEUE_LIMIT`.
         download_only: If True, only download the datasets and models and exit.
@@ -447,20 +84,24 @@ def schedule_evals(
     _load_cluster_env()
 
     if not skip_checks:
-        image_name = os.environ.get("EVAL_CONTAINER_IMAGE")
-        if image_name is None:
-            raise ValueError(
-                "EVAL_CONTAINER_IMAGE is not set. Please set it in clusters.yaml."
-            )
-
-        ensure_singularity_image(image_name)
+        _ensure_singularity_image(os.environ.get("EVAL_CONTAINER_IMAGE"))  # type: ignore
     else:
         logging.info("Skipping container image check (--skip-checks enabled)")
 
+    if isinstance(models, str) and models is not None:
+        models = [m.strip() for m in models.split(",") if m.strip()]  # type: ignore
+
+    if isinstance(tasks, str) and tasks is not None:
+        tasks = [t.strip() for t in tasks.split(",") if t.strip()]  # type: ignore
+
+    if isinstance(n_shot, int) and n_shot is not None:
+        n_shot = [n_shot]
+
+    eval_jobs: list[EvaluationJob] = []
     if eval_csv_path:
-        if models or tasks or task_group or n_shot:
+        if models or tasks or task_groups or n_shot:
             raise ValueError(
-                "Cannot specify `models`, `tasks`, `task_group`, or `n_shot` when `eval_csv_path` is provided."
+                "Cannot specify `models`, `tasks`, `task_groups`, or `n_shot` when `eval_csv_path` is provided."
             )
         df = pd.read_csv(eval_csv_path)
         required_cols = {"model_path", "task_path", "n_shot"}
@@ -469,172 +110,115 @@ def schedule_evals(
                 f"CSV file must contain the columns: {', '.join(required_cols)}"
             )
 
+        if "eval_suite" not in df.columns:
+            df["eval_suite"] = "lm_eval"
+        else:
+            df["eval_suite"] = df["eval_suite"].fillna("lm_eval")
+
         # Always expand local model paths, even with skip_checks
         df["model_path"].unique()
-        expanded_rows = []
-        for _, row in df.iterrows():
-            original_model_path = row["model_path"]
-            local_paths = _expand_local_model_paths(original_model_path)
-            if local_paths:
-                # Use expanded local paths
-                for expanded_path in local_paths:
-                    new_row = row.copy()
-                    new_row["model_path"] = expanded_path
-                    expanded_rows.append(new_row)
-            else:
-                # Keep original path (might be HF model)
-                expanded_rows.append(row)
-        df = pd.DataFrame(expanded_rows)
-
-        # Download HF models only if skip_checks is False
-        if not skip_checks:
-            # Process any HF models that need downloading
-            hf_models = [m for m in df["model_path"].unique() if not Path(m).exists()]
-            if hf_models:
-                model_path_map = _process_model_paths(hf_models)
-                # Update the dataframe with processed HF models
-                for idx, row in df.iterrows():
-                    if row["model_path"] in model_path_map:
-                        # This shouldn't expand further, just update the path
-                        df.at[idx, "model_path"] = model_path_map[row["model_path"]][0]
-        else:
-            logging.info(
-                "Skipping model path processing and validation (--skip-checks enabled)"
-            )
-
-    elif models and task_group:
-        if tasks or n_shot is not None:
-            raise ValueError(
-                "Cannot combine `task_group` with explicit `tasks` or `n_shot` arguments."
-            )
-
-        model_list = [m.strip() for m in models.split(",") if m.strip()]
-        if not model_list:
-            raise ValueError("No models specified.")
-
-        model_paths: list[str] = []
-
-        for model in model_list:
-            local_paths = _expand_local_model_paths(model)
-            if local_paths:
-                model_paths.extend(str(path) for path in local_paths)
-            else:
-                model_paths.append(model)
-
-        if not skip_checks:
-            hf_models = [m for m in model_paths if not Path(m).exists()]
-            if hf_models:
-                model_path_map = _process_model_paths(hf_models)
-                model_paths = [
-                    model_path_map[m][0] if m in model_path_map else m
-                    for m in model_paths
-                ]
-        else:
-            logging.info(
-                "Skipping model path processing and validation (--skip-checks enabled)"
-            )
-
-        group_names = [name.strip() for name in task_group.split(",") if name.strip()]
-        if not group_names:
-            raise ValueError("No task groups specified.")
-
-        task_groups = load_task_groups()
-
-        def _capture_duplicate(group_name: str, pair: tuple[str, int]) -> None:
-            task_name, nshot = pair
-            logging.info(
-                "Skipping duplicate task '%s' with n_shot=%s from group '%s'",
-                task_name,
-                nshot,
-                group_name,
-            )
-
-        flattened = flatten_task_groups(
-            group_names,
-            task_groups,
-            on_duplicate=_capture_duplicate,
+        eval_jobs.extend(
+            [
+                EvaluationJob(
+                    model_path=row["model_path"],
+                    task_path=row["task_path"],
+                    n_shot=row["n_shot"],
+                    eval_suite=row["eval_suite"],
+                )
+                for _, row in df.iterrows()
+            ]
         )
 
-        if not flattened:
-            raise ValueError(
-                "Resolved task groups did not yield any tasks. Check task-groups.yaml."
+    elif models:
+        if task_groups is None:
+            eval_jobs.extend(
+                [
+                    EvaluationJob(
+                        model_path=model,
+                        task_path=task,
+                        n_shot=shot,
+                        eval_suite="lm_eval",
+                    )
+                    for model in models
+                    for task in tasks
+                    for shot in n_shot
+                ]
+            )
+        else:
+            expanded = _expand_task_groups([g.strip() for g in task_groups.split(",")])
+            eval_jobs.extend(
+                [
+                    EvaluationJob(
+                        model_path=model,
+                        task_path=result.task,
+                        n_shot=result.n_shot,
+                        eval_suite=result.suite,
+                    )
+                    for model in models
+                    for result in expanded
+                ]
             )
 
-        records = []
-        for model_path in model_paths:
-            for task_name, nshot in flattened:
-                records.append(
-                    {
-                        "model_path": model_path,
-                        "task_path": task_name,
-                        "n_shot": nshot,
-                    }
+    expanded_eval_jobs = []
+    for job in eval_jobs:
+        local_model_paths = _expand_local_model_paths(job.model_path)
+        if not local_model_paths:
+            expanded_eval_jobs.append(job)
+        else:
+            for path in local_model_paths:
+                expanded_eval_jobs.append(
+                    EvaluationJob(
+                        model_path=path,
+                        task_path=job.task_path,
+                        n_shot=job.n_shot,
+                        eval_suite=job.eval_suite,
+                    )
                 )
 
-        df = pd.DataFrame(records)
-
-    elif models and tasks and n_shot is not None:
-        model_list = models.split(",")
-        expanded_model_paths: list[str] = []
-
-        # Always expand local paths
-        for model in model_list:
-            local_paths = _expand_local_model_paths(model)
-            if local_paths:
-                expanded_model_paths.extend(str(path) for path in local_paths)
-            else:
-                expanded_model_paths.append(model)
-
-        # Download HF models only if skip_checks is False
-        if not skip_checks:
-            hf_models = [m for m in expanded_model_paths if not Path(m).exists()]
-            if hf_models:
-                model_path_map = _process_model_paths(hf_models)
-                # Replace HF model identifiers with processed paths
-                expanded_model_paths = [
-                    model_path_map[m][0] if m in model_path_map else m
-                    for m in expanded_model_paths
-                ]
-        else:
-            logging.info(
-                "Skipping model path processing and validation (--skip-checks enabled)"
-            )
-
-        tasks_list = tasks.split(",")
-
-        # cross product of model_paths and tasks into a dataframe
-        df = pd.DataFrame(
-            product(
-                expanded_model_paths,
-                tasks_list,
-                n_shot if isinstance(n_shot, list) else [n_shot],
-            ),
-            columns=["model_path", "task_path", "n_shot"],
-        )
+    if not skip_checks:
+        hub_models: set[str | Path] = {
+            job.model_path
+            for job in expanded_eval_jobs
+            if not Path(job.model_path).exists()
+        }
+        _process_model_paths(hub_models)
     else:
-        raise ValueError(
-            "Either provide `eval_csv_path`, or specify `models` with `tasks` and `n_shot`,"
-            " or `models` with `task_group`."
+        logging.info(
+            "Skipping model path processing and validation (--skip-checks enabled)"
         )
+
+    # create csv
+    df = pd.DataFrame(expanded_eval_jobs)
 
     if df.empty:
         logging.warning("No evaluation jobs to schedule.")
         return None
 
+    df["eval_suite"] = df["eval_suite"].str.lower()
+
     # Ensure that all datasets required by the tasks are cached locally to avoid
     # network access on compute nodes.
     if not skip_checks:
-        _pre_download_task_datasets(
-            df["task_path"].unique(), trust_remote_code=trust_remote_code
-        )
+        lm_eval_tasks = df[df["eval_suite"].isin({"lm-eval-harness"})][
+            "task_path"
+        ].unique()
+        if len(lm_eval_tasks) > 0:
+            _pre_download_task_datasets(
+                lm_eval_tasks, trust_remote_code=trust_remote_code
+            )
+        # Pre-download LightEval datasets (best-effort, incremental support)
+        light_eval_tasks = df[df["eval_suite"].isin({"light-eval"})]["task_path"].unique()
+        if len(light_eval_tasks) > 0:
+            _pre_download_lighteval_datasets(light_eval_tasks)
     else:
         logging.info("Skipping dataset pre-download (--skip-checks enabled)")
 
     if download_only:
         return None
 
-    queue_limit = int(os.environ.get("QUEUE_LIMIT", 250))
-    remaining_queue_capacity = queue_limit - _num_jobs_in_queue()
+    remaining_queue_capacity = (
+        int(os.environ.get("QUEUE_LIMIT", 250)) - _num_jobs_in_queue()
+    )
 
     if remaining_queue_capacity <= 0:
         logging.warning("No remaining queue capacity. Not scheduling any jobs.")
@@ -663,74 +247,24 @@ def schedule_evals(
 
     df.to_csv(csv_path, index=False)
 
-    logging.debug(f"Saved evaluation dataframe to temporary CSV: {csv_path}")
-
-    with open(Path(__file__).parent / "template.sbatch") as f:
-        sbatch_template = f.read()
+    sbatch_template = (files("oellm.resources") / "template.sbatch").read_text()
 
     # Calculate dynamic array size and time limits
     total_evals = len(df)
-
-    # Calculate time based on actual task complexity (subtask count)
-    if not skip_checks:
-        from lm_eval.tasks import TaskManager  # type: ignore
-
-        shared_task_manager = TaskManager()
-
-        # Calculate total minutes by considering each unique task's complexity
-        total_minutes = 0
-        task_time_cache = {}  # Cache to avoid recalculating for same tasks
-
-        for _, row in df.iterrows():
-            task_name = row["task_path"]
-            if task_name not in task_time_cache:
-                task_time_cache[task_name] = _calculate_task_minutes(
-                    task_name, task_manager=shared_task_manager
-                )
-            total_minutes += task_time_cache[task_name]
-
-        # Calculate average minutes per eval for logging purposes
-        minutes_per_eval = total_minutes / total_evals if total_evals > 0 else 10
-
-        logging.info("📊 Dynamic time calculation:")
-        for task_name, task_minutes in task_time_cache.items():
-            task_count = (df["task_path"] == task_name).sum()
-            logging.info(
-                f"   Task '{task_name}': {task_minutes} min/eval × {task_count} evals = {task_minutes * task_count} total minutes"
-            )
-    else:
-        # Fallback to fixed timing when checks are skipped
-        minutes_per_eval = 10  # Budget 10 minutes per eval
-        total_minutes = total_evals * minutes_per_eval
-        logging.info(
-            "⚠️  Using fixed 10 min/eval (task complexity detection skipped with --skip-checks)"
-        )
-
-    # Maximum runtime per job (18 hours with safety margin)
+    minutes_per_eval = 10  # Budget 10 minutes per eval
+    total_minutes = total_evals * minutes_per_eval
     max_minutes_per_job = 18 * 60  # 18 hours
     min_array_size_for_time = max(1, int(np.ceil(total_minutes / max_minutes_per_job)))
     desired_array_size = min(128, total_evals) if total_evals >= 128 else total_evals
     if desired_array_size < min_array_size_for_time:
         desired_array_size = min_array_size_for_time
-
-    # The actual array size is limited by queue capacity and total evals
     actual_array_size = min(remaining_queue_capacity, desired_array_size, total_evals)
-
-    # Calculate actual time per job
     evals_per_job = max(1, int(np.ceil(total_evals / actual_array_size)))
     minutes_per_job = evals_per_job * minutes_per_eval
-
-    # Add 20% safety margin and round up to nearest hour
     minutes_with_margin = int(minutes_per_job * 1.2)
     hours_with_margin = max(1, int(np.ceil(minutes_with_margin / 60)))
-
-    # Apply 3-hour safety minimum for array jobs
     hours_with_margin = max(hours_with_margin, 3)
-
-    # Cap at 24 hours
     hours_with_margin = min(hours_with_margin, 23)
-
-    # Format time limit for SLURM (HH:MM:SS)
     time_limit = f"{hours_with_margin:02d}:59:00"
 
     # Log the calculated values
@@ -750,8 +284,6 @@ def schedule_evals(
     )
     logging.info(f"   Time limit with safety margin: {time_limit}")
 
-    # replace the placeholders in the template with the actual values
-    # First, replace python-style placeholders
     sbatch_script = sbatch_template.format(
         csv_path=csv_path,
         max_array_len=max_array_len,
@@ -763,13 +295,10 @@ def schedule_evals(
         time_limit=time_limit,  # Dynamic time limit
     )
 
-    # substitute any $ENV_VAR occurrences (e.g., $TIME_LIMIT) since env vars are not
-    # expanded in the #SBATCH directives
+    # substitute any $ENV_VAR occurrences
     sbatch_script = Template(sbatch_script).safe_substitute(os.environ)
 
-    # Save the sbatch script to the evals directory
     sbatch_script_path = evals_dir / "submit_evals.sbatch"
-    logging.debug(f"Saving sbatch script to {sbatch_script_path}")
 
     with open(sbatch_script_path, "w") as f:
         f.write(sbatch_script)
@@ -846,7 +375,6 @@ def collect_results(
     output_csv: str = "eval_results.csv",
     *,
     check: bool = False,
-    reschedule: bool = False,
     verbose: bool = False,
 ) -> None:
     """
@@ -855,16 +383,12 @@ def collect_results(
     Args:
         results_dir: Path to the directory containing result JSON files
         output_csv: Output CSV filename (default: eval_results.csv)
-        check: Check for crashed or pending evaluations
-        reschedule: Show overview table and prompt to reschedule failed/pending jobs
+        check: Check for missing evaluations and create a missing jobs CSV
         verbose: Enable verbose logging
     """
     import json
 
-    from rich.table import Table
-
     _setup_logging(verbose)
-    console = Console()
 
     results_path = Path(results_dir)
     if not results_path.exists():
@@ -885,13 +409,12 @@ def collect_results(
 
     logging.info(f"Found {len(json_files)} result files")
 
-    # If check or reschedule mode, also load the jobs.csv to compare
-    if check or reschedule:
+    # If check mode, also load the jobs.csv to compare
+    if check:
         jobs_csv_path = results_path / "jobs.csv"
         if not jobs_csv_path.exists():
             logging.warning(f"No jobs.csv found in {results_dir}, cannot perform check")
             check = False
-            reschedule = False
         else:
             jobs_df = pd.read_csv(jobs_csv_path)
             logging.info(f"Found {len(jobs_df)} scheduled jobs in jobs.csv")
@@ -899,72 +422,148 @@ def collect_results(
     # Collect results
     rows = []
     completed_jobs = set()  # Track (model, task, n_shot) tuples
-    results_with_performance = (
-        0  # Track how many results actually have performance data
-    )
 
     for json_file in json_files:
+        with open(json_file) as f:
+            data = json.load(f)
+
+        # Extract model name/path
+        model_name = data.get("model_name", "unknown")
+
+        # Extract results for each task
+        results = data.get("results", {})
+        n_shot_data = data.get("n-shot", {})
+
+        # Infer a global n_shot if exactly one unique value exists in this JSON
+        global_n_shot = None
         try:
-            with open(json_file) as f:
-                data = json.load(f)
+            candidate_values = []
+            for _v in n_shot_data.values():
+                if isinstance(_v, (int | float)):
+                    candidate_values.append(int(_v))
+                elif isinstance(_v, str) and _v.isdigit():
+                    candidate_values.append(int(_v))
+            unique_values = set(candidate_values)
+            if len(unique_values) == 1:
+                global_n_shot = next(iter(unique_values))
+        except Exception:
+            pass
 
-            # Extract model name/path
-            model_name = data.get("model_name", "unknown")
+        # Aggregate groups (lm-eval harness)
+        groups_map = data.get("groups", {})
+        group_subtasks_map = data.get("group_subtasks", {})
+        group_aggregate_names = set(groups_map.keys()) | set(group_subtasks_map.keys())
+        group_subtask_names: set[str] = set()
+        for _agg, _subs in group_subtasks_map.items():
+            for _s in _subs:
+                group_subtask_names.add(_s)
 
-            # Extract results for each task
-            results = data.get("results", {})
-            n_shot_data = data.get("n-shot", {})
+        # Prefer only the first aggregate metric from groups (simplified)
+        if groups_map:
+            group_name, group_results = next(iter(groups_map.items()))
+            n_shot = n_shot_data.get(group_name, "unknown")
+            if n_shot == "unknown":
+                for subtask_name in group_subtasks_map.get(group_name, []):
+                    if subtask_name in n_shot_data:
+                        n_shot = n_shot_data[subtask_name]
+                        break
+            if n_shot == "unknown" and global_n_shot is not None:
+                n_shot = global_n_shot
+            performance = group_results.get("acc,none")
+            if performance is None:
+                for metric in ["acc", "accuracy", "f1", "exact_match"]:
+                    if metric in group_results:
+                        performance = group_results[metric]
+                        break
+            if performance is not None:
+                if check:
+                    completed_jobs.add((model_name, group_name, n_shot))
+                rows.append(
+                    {
+                        "model_name": model_name,
+                        "task": group_name,
+                        "n_shot": n_shot,
+                        "performance": performance,
+                    }
+                )
+                # Skip per-task iteration when groups are present
+                continue
 
-            for task_name, task_results in results.items():
-                # Skip MMLU subtasks - only keep the aggregate score
-                if task_name.startswith("mmlu_") and task_name != "mmlu":
-                    continue
+        for task_name, task_results in results.items():
+            # Skip entries already added from groups
+            if groups_map and task_name in group_aggregate_names:
+                continue
+            # Skip any lm-eval group subtasks; keep only aggregates
+            if task_name in group_subtask_names:
+                continue
 
-                # Get n_shot for this task
-                n_shot = n_shot_data.get(task_name, "unknown")
+            # Skip MMLU subtasks - only keep the aggregate score
+            if task_name.startswith("mmlu_") and task_name != "mmlu":
+                continue
 
-                # Special handling for MMLU aggregate - get n_shot from any MMLU subtask
-                if task_name == "mmlu" and n_shot == "unknown":
-                    for key, value in n_shot_data.items():
-                        if key.startswith("mmlu_"):
-                            n_shot = value
-                            break
+            # Skip Global MMLU subtasks - keep only aggregates like global_mmlu_full_pt
+            if task_name.startswith("global_mmlu_") and task_name.count("_") >= 4:
+                continue
 
-                # Get the primary metric (usually acc,none)
-                performance = task_results.get("acc,none")
-                if performance is None:
-                    # Try other common metric names
-                    for metric in ["acc", "accuracy", "f1", "exact_match"]:
-                        if metric in task_results:
-                            performance = task_results[metric]
-                            break
+            # Get n_shot for this task
+            n_shot = n_shot_data.get(task_name, "unknown")
 
-                if performance is not None:
-                    results_with_performance += 1
+            # If this is a group aggregate and n_shot is missing, derive from any subtask
+            if task_name in group_aggregate_names and n_shot == "unknown":
+                for subtask_name in group_subtasks_map.get(task_name, []):
+                    if subtask_name in n_shot_data:
+                        n_shot = n_shot_data[subtask_name]
+                        break
+            if n_shot == "unknown" and global_n_shot is not None:
+                n_shot = global_n_shot
 
-                    # Track completed job for check/reschedule mode (only if we have a result)
-                    if check or reschedule:
-                        completed_jobs.add((model_name, task_name, n_shot))
+            # Special handling for MMLU aggregate - get n_shot from any MMLU subtask
+            if task_name == "mmlu" and n_shot == "unknown":
+                for key, value in n_shot_data.items():
+                    if key.startswith("mmlu_"):
+                        n_shot = value
+                        break
+                if n_shot == "unknown" and global_n_shot is not None:
+                    n_shot = global_n_shot
 
-                    rows.append(
-                        {
-                            "model_name": model_name,
-                            "task": task_name,
-                            "n_shot": n_shot,
-                            "performance": performance,
-                        }
+            # Special handling for Global MMLU aggregates - get n_shot from subtasks
+            if task_name.startswith("global_mmlu_") and n_shot == "unknown":
+                prefix = f"{task_name}_"
+                for key, value in n_shot_data.items():
+                    if key.startswith(prefix):
+                        n_shot = value
+                        break
+                if n_shot == "unknown" and global_n_shot is not None:
+                    n_shot = global_n_shot
+
+            # Get the primary metric (usually acc,none)
+            performance = task_results.get("acc,none")
+            if performance is None:
+                # Try other common metric names
+                for metric in ["acc", "accuracy", "f1", "exact_match"]:
+                    if metric in task_results:
+                        performance = task_results[metric]
+                        break
+
+            if performance is not None:
+                # Track completed job for check mode
+                if check:
+                    completed_jobs.add((model_name, task_name, n_shot))
+
+                rows.append(
+                    {
+                        "model_name": model_name,
+                        "task": task_name,
+                        "n_shot": n_shot,
+                        "performance": performance,
+                    }
+                )
+            else:
+                # Debug: log cases where we have a task but no performance metric
+                if verbose:
+                    logging.debug(
+                        f"No performance metric found for {model_name} | {task_name} | n_shot={n_shot} in {json_file.name}"
                     )
-                else:
-                    # Debug: log cases where we have a task but no performance metric
-                    if verbose:
-                        logging.debug(
-                            f"No performance metric found for {model_name} | {task_name} | n_shot={n_shot} in {json_file.name}"
-                        )
-
-        except Exception as e:
-            logging.warning(f"Failed to process {json_file}: {e}")
-            if verbose:
-                logging.exception(e)
 
     if not rows and not check:
         logging.warning("No results extracted from JSON files")
@@ -979,7 +578,7 @@ def collect_results(
 
         # Print summary statistics
         if verbose:
-            logging.info("\nSummary:")
+            logging.info("Summary:")
             logging.info(f"Unique models: {df['model_name'].nunique()}")
             logging.info(f"Unique tasks: {df['task'].nunique()}")
             logging.info(
@@ -987,101 +586,23 @@ def collect_results(
             )
 
     # Perform check analysis if requested
-    if check or reschedule:
-        logging.info("\n=== Evaluation Status Check ===")
+    if check:
+        logging.info("=== Evaluation Status Check ===")
 
-        # Parse SLURM logs to get more detailed status
-        slurm_logs_dir = results_path / "slurm_logs"
-        attempted_jobs = set()  # Jobs that were attempted (started)
-        failed_jobs = set()  # Jobs that crashed/failed
-
-        if slurm_logs_dir.exists():
-            # Parse .out files to find attempted jobs
-            for out_file in slurm_logs_dir.glob("*.out"):
-                try:
-                    with open(out_file) as f:
-                        content = f.read()
-                        # Look for "Starting evaluation for:" patterns
-                        import re
-
-                        pattern = r"Starting evaluation for:\s*\n\s*Model: (.+)\s*\n\s*Task: (.+)\s*\n\s*N-shot: (\d+)"
-                        matches = re.findall(pattern, content)
-                        for model, task, n_shot in matches:
-                            attempted_jobs.add(
-                                (model.strip(), task.strip(), int(n_shot.strip()))
-                            )
-
-                        # Check if job finished successfully
-                        if "Job" in content and "finished." in content:
-                            # This array job completed successfully
-                            pass
-                        else:
-                            # Job might have crashed - check for specific patterns
-                            if (
-                                "Traceback" in content
-                                or "Error" in content
-                                or "Exception" in content
-                            ):
-                                for model, task, n_shot in matches:
-                                    failed_jobs.add(
-                                        (
-                                            model.strip(),
-                                            task.strip(),
-                                            int(n_shot.strip()),
-                                        )
-                                    )
-                except Exception as e:
-                    logging.debug(f"Error parsing {out_file}: {e}")
-
-            # Parse .err files for errors
-            for err_file in slurm_logs_dir.glob("*.err"):
-                try:
-                    file_size = err_file.stat().st_size
-                    if file_size > 0:  # Non-empty error file
-                        # Extract array task ID from filename
-                        array_id_match = re.search(r"-(\d+)\.err$", err_file.name)
-                        if array_id_match:
-                            int(array_id_match.group(1))
-                            # Find corresponding .out file to get job details
-                            out_file = err_file.with_suffix(".out")
-                            if out_file.exists():
-                                with open(out_file) as f:
-                                    content = f.read()
-                                    pattern = r"Starting evaluation for:\s*\n\s*Model: (.+)\s*\n\s*Task: (.+)\s*\n\s*N-shot: (\d+)"
-                                    matches = re.findall(pattern, content)
-                                    for model, task, n_shot in matches:
-                                        failed_jobs.add(
-                                            (
-                                                model.strip(),
-                                                task.strip(),
-                                                int(n_shot.strip()),
-                                            )
-                                        )
-                except Exception as e:
-                    logging.debug(f"Error parsing {err_file}: {e}")
-
-        # Categorize incomplete jobs
-        still_running_jobs = []  # Jobs that are likely still executing
-        never_attempted_jobs = []
-        crashed_jobs = []
-        needs_rerun_jobs = []  # Jobs that definitely need to be rescheduled
-
-        # We know we have exactly len(completed_jobs) completed jobs with actual results
-        # The rest need to be categorized
-        len(completed_jobs)
+        # Find missing jobs
+        missing_jobs = []
 
         for _, job in jobs_df.iterrows():
             job_tuple = (job["model_path"], job["task_path"], job["n_shot"])
 
             # Check if this job corresponds to one of our completed results
-            # Use the same matching logic as before but don't over-count
             is_completed = False
 
-            # Try to find a matching completed job
+            # Try exact matching first
             if job_tuple in completed_jobs:
                 is_completed = True
             else:
-                # Try fuzzy matching
+                # Try fuzzy matching for model names
                 for completed_job in completed_jobs:
                     completed_model, completed_task, completed_n_shot = completed_job
 
@@ -1096,214 +617,43 @@ def collect_results(
                         is_completed = True
                         break
 
-            if is_completed:
-                continue  # Skip completed jobs
+            if not is_completed:
+                missing_jobs.append(job)
 
-            # Job is not completed, categorize it
-            if job_tuple in failed_jobs:
-                crashed_jobs.append(job)
-                needs_rerun_jobs.append(job)
-            elif job_tuple not in attempted_jobs:
-                never_attempted_jobs.append(job)
-                needs_rerun_jobs.append(job)  # These likely need rescheduling too
-            else:
-                # Job was attempted but not completed and didn't crash - likely still running
-                still_running_jobs.append(job)
+        completed_count = len(jobs_df) - len(missing_jobs)
 
-        needs_rerun_df = pd.DataFrame(needs_rerun_jobs)
+        logging.info(f"Total scheduled jobs: {len(jobs_df)}")
+        logging.info(f"Completed jobs: {completed_count}")
+        logging.info(f"Missing jobs: {len(missing_jobs)}")
 
-        # Calculate completed jobs based on the jobs.csv perspective
-        actual_completed_from_jobs = (
-            len(jobs_df)
-            - len(still_running_jobs)
-            - len(crashed_jobs)
-            - len(never_attempted_jobs)
-        )
-
-        logging.info(f"\nTotal scheduled jobs: {len(jobs_df)}")
-        logging.info(
-            f"Completed jobs (from scheduled jobs): {actual_completed_from_jobs}"
-        )
-        logging.info(f"Still running/pending: {len(still_running_jobs)}")
-        logging.info(f"Failed/Crashed jobs: {len(crashed_jobs)}")
-        logging.info(f"Never attempted: {len(never_attempted_jobs)}")
-        logging.info(f"Jobs needing reschedule: {len(needs_rerun_jobs)}")
-
-        if verbose:
-            logging.info(f"Total CSV rows (results with performance data): {len(rows)}")
+        if len(missing_jobs) > 0:
+            missing_df = pd.DataFrame(missing_jobs)
+            missing_csv = output_csv.replace(".csv", "_missing.csv")
+            missing_df.to_csv(missing_csv, index=False)
+            logging.info(f"Missing jobs saved to: {missing_csv}")
             logging.info(
-                f"Unique completed jobs found in JSON files: {len(completed_jobs)}"
+                f"You can run these with: oellm schedule-eval --eval_csv_path {missing_csv}"
             )
-            if len(completed_jobs) != actual_completed_from_jobs:
-                logging.info(
-                    f"Note: {len(completed_jobs)} results found vs {actual_completed_from_jobs} jobs matched from schedule"
-                )
 
-        if len(needs_rerun_jobs) > 0:
-            if reschedule:
-                # Show overview table in reschedule mode
-                console.print("\n[bold cyan]🔄 Jobs Needing Reschedule[/bold cyan]")
-
-                # Create summary table
-                summary_table = Table(
-                    show_header=True, header_style="bold magenta", box=box.ROUNDED
-                )
-                summary_table.add_column("Status", style="bold")
-                summary_table.add_column("Count", justify="right", style="cyan")
-
-                summary_table.add_row("✅ Completed", str(actual_completed_from_jobs))
-                summary_table.add_row("🏃 Still Running", str(len(still_running_jobs)))
-                summary_table.add_row("❌ Crashed", str(len(crashed_jobs)))
-                summary_table.add_row(
-                    "⏭️  Never Attempted", str(len(never_attempted_jobs))
-                )
-                summary_table.add_row(
-                    "[bold yellow]🔄 Need Reschedule[/bold yellow]",
-                    f"[bold yellow]{len(needs_rerun_jobs)}[/bold yellow]",
-                )
-
-                console.print(summary_table)
-
-                # Show detailed table of jobs to reschedule
-                console.print("\n[bold cyan]📋 Detailed Job List[/bold cyan]")
-
-                detail_table = Table(
-                    show_header=True, header_style="bold magenta", box=box.ROUNDED
-                )
-                detail_table.add_column("#", style="dim", width=4)
-                detail_table.add_column("Status", style="bold", width=15)
-                detail_table.add_column(
-                    "Model", style="cyan", no_wrap=True, max_width=40
-                )
-                detail_table.add_column("Task", style="green", max_width=20)
-                detail_table.add_column("n_shot", justify="right", style="yellow")
-
-                # Show first 20 rows
-                for idx, (_, job) in enumerate(needs_rerun_df.head(20).iterrows(), 1):
-                    if (
-                        job["model_path"],
-                        job["task_path"],
-                        job["n_shot"],
-                    ) in failed_jobs:
-                        status = "[red]❌ CRASHED[/red]"
-                    else:
-                        status = "[yellow]⏭️  NOT ATTEMPTED[/yellow]"
-
-                    # Truncate long model paths for display
-                    model_display = str(job["model_path"])
-                    if len(model_display) > 40:
-                        model_display = "..." + model_display[-37:]
-
-                    detail_table.add_row(
-                        str(idx),
-                        status,
-                        model_display,
-                        str(job["task_path"]),
-                        str(job["n_shot"]),
+            # Show some examples if verbose
+            if verbose and len(missing_jobs) > 0:
+                logging.info("Example missing jobs:")
+                for _i, (_, job) in enumerate(missing_df.head(5).iterrows()):
+                    logging.info(
+                        f"  - {job['model_path']} | {job['task_path']} | n_shot={job['n_shot']}"
                     )
-
-                if len(needs_rerun_jobs) > 20:
-                    detail_table.add_row("...", "...", "...", "...", "...")
-                    console.print(detail_table)
-                    console.print(
-                        f"\n[dim]Showing 20 of {len(needs_rerun_jobs)} jobs[/dim]"
-                    )
-                else:
-                    console.print(detail_table)
-
-                # Ask for confirmation
-                console.print(
-                    f"\n[bold]Total jobs to reschedule: {len(needs_rerun_jobs)}[/bold]"
-                )
-
-                import questionary
-                from questionary import Style
-
-                custom_style = Style(
-                    [
-                        ("qmark", "fg:#673ab7 bold"),
-                        ("question", "bold"),
-                        ("answer", "fg:#f44336 bold"),
-                        ("pointer", "fg:#673ab7 bold"),
-                        ("highlighted", "fg:#673ab7 bold"),
-                        ("selected", "fg:#cc5454"),
-                    ]
-                )
-
-                save_and_schedule = questionary.confirm(
-                    "\nSave failed jobs CSV and schedule re-evaluation?",
-                    default=True,
-                    style=custom_style,
-                ).ask()
-
-                if save_and_schedule:
-                    # Save the CSV
-                    rerun_csv = output_csv.replace(".csv", "_needs_rerun.csv")
-                    needs_rerun_df.to_csv(rerun_csv, index=False)
-                    console.print(f"\n[green]✅ Jobs saved to: {rerun_csv}[/green]")
-
-                    # Ask if they want to schedule now
-                    schedule_now = questionary.confirm(
-                        "\nSchedule these jobs now?",
-                        default=True,
-                        style=custom_style,
-                    ).ask()
-
-                    if schedule_now:
-                        console.print("\n[yellow]To schedule these jobs, run:[/yellow]")
-                        console.print(
-                            f"[bold cyan]oellm schedule-eval --eval_csv_path {rerun_csv}[/bold cyan]"
-                        )
-
-            else:
-                # Original behavior for check mode
-                # Save jobs that need rescheduling
-                rerun_csv = output_csv.replace(".csv", "_needs_rerun.csv")
-                needs_rerun_df.to_csv(rerun_csv, index=False)
-                logging.info(f"\nJobs needing reschedule saved to: {rerun_csv}")
-                logging.info(
-                    f"You can re-run these with: [bold cyan]oellm schedule-eval --eval_csv_path {rerun_csv}[/bold cyan]"
-                )
-
-                # Save crashed jobs separately if any
-                if crashed_jobs:
-                    crashed_csv = output_csv.replace(".csv", "_crashed.csv")
-                    pd.DataFrame(crashed_jobs).to_csv(crashed_csv, index=False)
-                    logging.info(f"Crashed jobs specifically saved to: {crashed_csv}")
-
-                # Show some examples if verbose
-                if verbose and len(needs_rerun_jobs) > 0:
-                    logging.info("\nExample jobs needing reschedule:")
-                    for _i, (_, job) in enumerate(needs_rerun_df.head(5).iterrows()):
-                        if (
-                            job["model_path"],
-                            job["task_path"],
-                            job["n_shot"],
-                        ) in failed_jobs:
-                            status = "CRASHED"
-                        else:
-                            status = "NEVER ATTEMPTED"
-                        logging.info(
-                            f"  - [{status}] {job['model_path']} | {job['task_path']} | n_shot={job['n_shot']}"
-                        )
-                    if len(needs_rerun_jobs) > 5:
-                        logging.info(f"  ... and {len(needs_rerun_jobs) - 5} more")
-
-        if still_running_jobs and verbose:
-            logging.info(
-                f"\nNote: {len(still_running_jobs)} jobs appear to still be running/pending."
-            )
-            logging.info(
-                "These were attempted but haven't completed yet. Check SLURM queue status."
-            )
+                if len(missing_jobs) > 5:
+                    logging.info(f"  ... and {len(missing_jobs) - 5} more")
 
 
 def main():
+    _filter_warnings()
     auto_cli(
         {
             "schedule-eval": schedule_evals,
             "build-csv": build_csv,
             "collect-results": collect_results,
+            "clean-cache": lambda: clear_task_cache(),
         },
         as_positional=False,
         description="OELLM: Multi-cluster evaluation tool for language models",

@@ -3,17 +3,25 @@ name = "oellm"
 version = "0.1.0"
 description = "OpenEuroLLM CLI"
 readme = "README.md"
-requires-python = ">=3.12,<3.14"
+requires-python = ">=3.12"
 dependencies = [
     "pandas",
-    "jsonargparse[all]",
-    "datasets<4.0.0",
+    "jsonargparse",
+    "datasets",
     "rich",
     "torch",
     "lm-eval",
+    "lighteval[extended_tasks,multilingual] @ git+https://github.com/huggingface/lighteval.git@63424f4e795ecc577b90646381b374af3a627978",
+    "pydantic<2.12",
     "huggingface_hub",
     "pyyaml",
     "questionary",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.4.1",
+    "pre-commit",
 ]
 
 [project.scripts]
@@ -26,7 +34,7 @@ build-backend = "uv_build"
 [tool.uv.build-backend]
 module-name = "oellm"
 module-root = ""
-include = ["oellm/clusters.yaml", "oellm/task-groups.yaml"]
+include = ["oellm/resources/*"]
 
 [tool.uv.sources]
 torch = [
@@ -42,8 +50,8 @@ url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
 [tool.ruff]
-line-length = 88
-target-version = "py38"
+line-length = 90
+target-version = "py312"
 
 [tool.ruff.lint]
 select = [
@@ -70,8 +78,3 @@ quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
-
-[dependency-groups]
-dev = [
-    "pytest>=8.4.1",
-]

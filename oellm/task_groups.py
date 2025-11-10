@@ -1,122 +1,142 @@
-"""Utilities for loading and resolving task group definitions."""
-
-from __future__ import annotations
-
-import logging
-from pathlib import Path
-from typing import Iterable, Sequence
+from collections.abc import Iterable
+from dataclasses import dataclass
+from importlib.resources import files
 
 import yaml
 
-DEFAULT_TASK_GROUPS_PATH = Path(__file__).parent / "task-groups.yaml"
+
+@dataclass
+class _Task:
+    name: str
+    n_shots: list[int] | None = None
 
 
-def load_task_groups(path: str | Path | None = None) -> dict[str, dict]:
-    """Load task group definitions from a YAML file."""
-    groups_path = Path(path) if path is not None else DEFAULT_TASK_GROUPS_PATH
-    if not groups_path.exists():
-        raise FileNotFoundError(
-            f"Task groups file not found at {groups_path}. Please create it or "
-            "provide a custom path."
-        )
+@dataclass
+class TaskGroup:
+    name: str
+    tasks: list[_Task]
+    suite: str
+    description: str
+    n_shots: list[int] | None = None
 
-    with groups_path.open("r", encoding="utf-8") as fh:
-        data = yaml.safe_load(fh) or {}
-
-    task_groups = data.get("task_groups", {})
-    if not isinstance(task_groups, dict):
-        raise ValueError(
-            "task_groups.yaml is malformed. Expected 'task_groups' to be a mapping."
-        )
-
-    return task_groups
-
-
-def resolve_task_group(
-    group_name: str,
-    task_groups: dict[str, dict],
-    console=None,
-    _chain: Sequence[str] | None = None,
-) -> list[dict]:
-    """Resolve a task group into its concrete task definitions."""
-
-    if _chain is None:
-        _chain = []
-
-    if group_name not in task_groups:
-        raise ValueError(
-            f"Task group '{group_name}' is not defined in task-groups.yaml."
-        )
-
-    if group_name in _chain:
-        cycle = " -> ".join(list(_chain) + [group_name])
-        raise ValueError(f"Circular task group reference detected: {cycle}")
-
-    group_data = task_groups.get(group_name) or {}
-    chain = list(_chain) + [group_name]
-    resolved_tasks: list[dict] = []
-
-    subgroups = group_data.get("groups", [])
-    if subgroups:
-        if not isinstance(subgroups, list):
-            raise ValueError(
-                f"Task group '{group_name}' has an invalid 'groups' section; expected a list of group names."
-            )
-        for subgroup in subgroups:
-            if not isinstance(subgroup, str):
+    def __post_init__(self):
+        for task in self.tasks:
+            if task.n_shots is None and self.n_shots is not None:
+                task.n_shots = self.n_shots
+            elif task.n_shots is None and self.n_shots is None:
                 raise ValueError(
-                    f"Task group '{group_name}' references an invalid subgroup entry: {subgroup!r}"
+                    f"N_shots is not set for task {task.name} and no default n_shots is set for the task group: {self.name}"
                 )
-            resolved_tasks.extend(
-                resolve_task_group(subgroup, task_groups, console=console, _chain=chain)
-            )
 
-    for task_item in group_data.get("tasks", []) or []:
-        if "task" not in task_item:
-            message = (
-                f"Skipping malformed task entry in group '{group_name}': {task_item}"
-            )
-            if console is not None:
-                console.print(f"[yellow]{message}[/yellow]")
-            else:
-                logging.warning(message)
-            continue
-        resolved_tasks.append(
-            {
-                "task": task_item["task"],
-                "n_shots": list(task_item.get("n_shots", [0])),
-            }
+    @classmethod
+    def from_dict(cls, name: str, data: dict) -> "TaskGroup":
+        tasks = []
+        for task_data in data["tasks"]:
+            task_name = task_data["task"]
+            task_n_shots = task_data.get("n_shots")
+            tasks.append(_Task(name=task_name, n_shots=task_n_shots))
+
+        return cls(
+            name=name,
+            tasks=tasks,
+            suite=data["suite"],
+            description=data["description"],
+            n_shots=data.get("n_shots"),
         )
 
-    return resolved_tasks
+
+@dataclass
+class TaskSuperGroup:
+    name: str
+    task_groups: list[TaskGroup]
+    description: str
+
+    def __post_init__(self):
+        resolved_groups = []
+        for group in self.task_groups:
+            if isinstance(group, str):
+                raise ValueError(
+                    f"Task group '{group}' not found in available task groups"
+                )
+            resolved_groups.append(group)
+        self.task_groups = resolved_groups
+
+    @classmethod
+    def from_dict(
+        cls, name: str, data: dict, available_task_groups: dict[str, TaskGroup]
+    ) -> "TaskSuperGroup":
+        task_groups = []
+        for task_group_data in data["task_groups"]:
+            group_name = task_group_data["task"]
+            if group_name not in available_task_groups:
+                raise ValueError(
+                    f"Task group '{group_name}' not found in available task groups"
+                )
+            task_groups.append(available_task_groups[group_name])
+
+        return cls(
+            name=name,
+            task_groups=task_groups,
+            description=data["description"],
+        )
 
 
-def flatten_task_groups(
-    group_names: Iterable[str],
-    task_groups: dict[str, dict],
-    *,
-    console=None,
-    on_duplicate=None,
-) -> list[tuple[str, int]]:
-    """Flatten multiple task groups into (task, n_shot) pairs without duplicates."""
+def _parse_task_groups(
+    requested_groups: list[str],
+) -> dict[str, TaskSuperGroup | TaskGroup]:
+    data = (
+        yaml.safe_load((files("oellm.resources") / "task-groups.yaml").read_text()) or {}
+    )
 
-    seen: set[tuple[str, int]] = set()
-    flattened: list[tuple[str, int]] = []
+    task_groups: dict[str, TaskGroup] = {}
 
-    for group_name in group_names:
-        resolved = resolve_task_group(group_name, task_groups, console=console)
-        for entry in resolved:
-            task_name = entry["task"]
-            for n_shot in entry.get("n_shots", [0]):
-                pair = (task_name, int(n_shot))
-                if pair in seen:
-                    if on_duplicate is not None:
-                        on_duplicate(group_name, pair)
-                    continue
-                seen.add(pair)
-                flattened.append(pair)
+    for task_group_name, task_data in data["task_groups"].items():
+        task_groups[task_group_name] = TaskGroup.from_dict(task_group_name, task_data)
 
-    return flattened
+    super_groups: dict[str, TaskSuperGroup] = {}
+    for super_group_name, super_group_data in data.get("super_groups", {}).items():
+        super_groups[super_group_name] = TaskSuperGroup.from_dict(
+            super_group_name, super_group_data, task_groups
+        )
+
+    result = {**task_groups, **super_groups}
+    return {
+        group_name: group
+        for group_name, group in result.items()
+        if group_name in requested_groups
+    }
 
 
-__all__ = ["load_task_groups", "resolve_task_group", "flatten_task_groups"]
+@dataclass
+class TaskGroupResult:
+    task: str
+    n_shot: int
+    suite: str
+
+
+def _expand_task_groups(group_names: Iterable[str]) -> list[TaskGroupResult]:
+    parsed = _parse_task_groups([str(n).strip() for n in group_names if str(n).strip()])
+    missing = {str(n).strip() for n in group_names if str(n).strip()} - set(parsed.keys())
+    if missing:
+        raise ValueError(f"Unknown task group(s): {', '.join(sorted(missing))}")
+
+    results: list[TaskGroupResult] = []
+
+    for _, group in parsed.items():
+        if isinstance(group, TaskGroup):
+            suite = group.suite
+            for t in group.tasks:
+                shots = [int(s) for s in (t.n_shots or [])]
+                for shot in shots:
+                    results.append(TaskGroupResult(task=t.name, n_shot=shot, suite=suite))
+        else:
+            for g in group.task_groups:
+                suite = g.suite
+                for t in g.tasks:
+                    shots = [int(s) for s in (t.n_shots or [])]
+                    for shot in shots:
+                        results.append(
+                            TaskGroupResult(task=t.name, n_shot=shot, suite=suite)
+                        )
+
+    return results

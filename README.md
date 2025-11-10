@@ -7,7 +7,7 @@ A package for running OELLM CLI workflows across multiple HPC clusters using SLU
 - Restart failed evaluations (e.g., due to node failures) ✅ `oellm collect-results ... --reschedule true`
 - Interactive eval job/csv builder ✅ `oellm build-csv`
   - Recursively resolve local paths: pass a directory containing models and their nested intermediate checkpoints, will eval all checkpoints
-  - Support default task groups (cf `oellm/task-groups.yaml`)
+  - Support default task groups (cf `oellm/resources/task-groups.yaml`)
 
 ## Planned workflows
 - Sync and download evaluation results from all clusters via a shared data layer
@@ -21,7 +21,7 @@ A package for running OELLM CLI workflows across multiple HPC clusters using SLU
 
 ```bash
 # Install the package
-uv tool install --python 3.12 git+https://github.com/OpenEuroLLM/oellm-cli.git
+uv tool install git+https://github.com/OpenEuroLLM/oellm-cli.git
 
 # Run evaluations on multiple models and tasks
 oellm schedule-eval \
@@ -49,6 +49,10 @@ This will launch an interactive workflow where you can:
 - Select evaluation tasks
 - Configure n-shot settings
 - Preview and save your evaluation configuration
+
+The resulting CSV includes an additional `eval_suite` column that records which
+evaluation framework (e.g., `lm_eval` or `lighteval`) should be used for each
+task.
 
 Otherwise you can also directly schedule using a CSV file:
 ```bash
@@ -104,7 +108,7 @@ The `oellm` package orchestrates distributed LLM evaluations through the followi
 
 ### 1. **Cluster Auto-Detection**
 - Automatically detects the current HPC cluster based on hostname patterns
-- Loads cluster-specific configurations from [`clusters.yaml`](oellm/clusters.yaml) including:
+- Loads cluster-specific configurations from [`clusters.yaml`](oellm/resources/clusters.yaml) including:
   - SLURM partition and account settings
   - Shared storage paths for models, datasets, and results
   - GPU allocation and queue limits

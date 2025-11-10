@@ -20,6 +20,7 @@ export HF_XET_CACHE="$HF_HOME/xet"
 export HF_ASSETS_CACHE="$HF_HOME/assets"
 export HUGGINGFACE_HUB_CACHE="$HF_HOME/hub"
 export HUGGINGFACE_ASSETS_CACHE="$HF_HOME/assets"
+export HF_DATASETS_CACHE="$HF_HOME/datasets"
 export HF_HUB_OFFLINE=1
 
 # Path to the shared Singularity image that contains all runtime deps
@@ -56,12 +57,13 @@ fi
 # Use `tail` and `head` to slice the CSV file for the tasks assigned to this job.
 # The +1 on START_INDEX accounts for the header row.
 tail -n +$((START_INDEX + 1)) "$CSV_PATH" | head -n $((END_INDEX - START_INDEX + 1)) | \
-while IFS=, read -r model_path task_path n_shot
+while IFS=, read -r model_path task_path n_shot eval_suite
 do
     # Remove trailing carriage returns if script is edited on Windows
     model_path=$(echo "$model_path" | tr -d '\r')
     task_path=$(echo "$task_path" | tr -d '\r')
     n_shot=$(echo "$n_shot" | tr -d '\r')
+    eval_suite=$(echo "${{eval_suite:-lm_eval}}" | tr -d '\r')
 
     # Skip empty lines
     if [ -z "$model_path" ]; then
@@ -73,6 +75,7 @@ do
     echo "  Model: $model_path"
     echo "  Task: $task_path"
     echo "  N-shot: $n_shot"
+    echo "  Suite: $eval_suite"
     echo "----------------------------------------------------"
 
     # Build bind paths: always mount the shared eval directory, and additionally
@@ -91,16 +94,55 @@ do
         fi
     fi
 
+    suite_normalized=$(echo "$eval_suite" | tr '[:upper:]' '[:lower:]')
 
-    singularity exec $SINGULARITY_ARGS \
-        --bind $BIND_PATHS \
-        $EVAL_SIF_PATH \
-        python -m lm_eval --model hf \
-            --model_args pretrained="$model_path",trust_remote_code=True \
-            --tasks "$task_path" \
-            --num_fewshot "$n_shot" \
-            --output_path "{evals_dir}/$(openssl rand -hex 5).json" \
-            --trust_remote_code
+    case "$suite_normalized" in
+        lm_eval|lm-eval|lm-eval-harness)
+            singularity exec $SINGULARITY_ARGS \
+                --bind $BIND_PATHS \
+                $EVAL_SIF_PATH \
+                python -m lm_eval --model hf \
+                    --model_args pretrained="$model_path",trust_remote_code=True \
+                    --tasks "$task_path" \
+                    --num_fewshot "$n_shot" \
+                    --output_path "{evals_dir}/$(openssl rand -hex 5).json" \
+                    --trust_remote_code
+            ;;
+        lighteval|light-eval)
+            LIGHT_TASK="$task_path"
+
+            if [[ -f "$LIGHT_TASK" ]]; then
+                LIGHT_TASK_ARG="$LIGHT_TASK"
+            else
+                last_segment="${{LIGHT_TASK##*|}}"
+                if [[ "$LIGHT_TASK" == *"|"* && "$last_segment" =~ ^[0-9]+$ ]]; then
+                    if [[ -n "$n_shot" && "$last_segment" != "$n_shot" ]]; then
+                        LIGHT_TASK_ARG="${{LIGHT_TASK%|*}}|$n_shot"
+                    else
+                        LIGHT_TASK_ARG="$LIGHT_TASK"
+                    fi
+                else
+                    LIGHT_TASK_ARG="lighteval|${{LIGHT_TASK}}|$n_shot|0"
+                fi
+            fi
+
+            RESULTS_SUBDIR="{evals_dir}/$(openssl rand -hex 5)"
+            mkdir -p "$RESULTS_SUBDIR"
+
+            singularity exec $SINGULARITY_ARGS \
+                --bind $BIND_PATHS \
+                --env CUDA_VISIBLE_DEVICES=$SLURM_GPUS_PER_NODE \
+                $EVAL_SIF_PATH \
+                lighteval accelerate \
+                    "model_name=$model_path,trust_remote_code=True" \
+                    "$LIGHT_TASK_ARG" \
+                    --custom-tasks lighteval.tasks.multilingual.tasks \
+                    --output-dir "$RESULTS_SUBDIR"
+            ;;
+        *)
+            echo "[warning] Unknown evaluation suite '$eval_suite'. Skipping."
+            ;;
+    esac
 
     echo "Evaluation finished for model: $model_path"
 
