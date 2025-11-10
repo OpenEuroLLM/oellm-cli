@@ -15,7 +15,6 @@ dependencies = [
     "pydantic<2.12",
     "huggingface_hub",
     "pyyaml",
-    "questionary",
 ]
 
 [project.optional-dependencies]
