@@ -5,9 +5,6 @@ A package for running OELLM CLI workflows across multiple HPC clusters using SLU
 ## Currently supported workflows
 - Schedule evaluations on multiple models and tasks on all clusters ✅ `oellm schedule-eval ...`
 - Restart failed evaluations (e.g., due to node failures) ✅ `oellm collect-results ... --reschedule true`
-- Interactive eval job/csv builder ✅ `oellm build-csv`
-  - Recursively resolve local paths: pass a directory containing models and their nested intermediate checkpoints, will eval all checkpoints
-  - Support default task groups (cf `oellm/resources/task-groups.yaml`)
 
 ## Planned workflows
 - Sync and download evaluation results from all clusters via a shared data layer
@@ -38,23 +35,7 @@ This will automatically:
 
 In case you meet HuggingFace quotas issues, make sure you are logged in by setting your `HF_TOKEN` and that you are part of [OpenEuroLLM](https://huggingface.co/OpenEuroLLM) organization.
 
-## Interactive CSV Builder
-
-```bash
-oellm interactive-csv
-```
-
-This will launch an interactive workflow where you can:
-- Add models (HuggingFace Hub or local paths)
-- Select evaluation tasks
-- Configure n-shot settings
-- Preview and save your evaluation configuration
-
-The resulting CSV includes an additional `eval_suite` column that records which
-evaluation framework (e.g., `lm_eval` or `lighteval`) should be used for each
-task.
-
-Otherwise you can also directly schedule using a CSV file:
+You can also directly schedule using a CSV file:
 ```bash
 oellm schedule-eval --eval_csv_path custom_evals.csv
 ```

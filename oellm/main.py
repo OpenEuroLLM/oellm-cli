@@ -351,25 +351,6 @@ def schedule_evals(
         )
 
 
-def build_csv(
-    output_path: str = "eval_config.csv",
-    *,
-    verbose: bool = False,
-) -> None:
-    """
-    Build a CSV file for evaluation with per-task n_shot configurations using the interactive builder.
-
-    Args:
-        output_path: Path where the CSV file will be saved.
-        verbose: Enable verbose logging.
-    """
-    _setup_logging(verbose)
-
-    from oellm.interactive_csv_builder import build_csv_interactive
-
-    build_csv_interactive(output_path)
-
-
 def collect_results(
     results_dir: str,
     output_csv: str = "eval_results.csv",
@@ -651,7 +632,6 @@ def main():
     auto_cli(
         {
             "schedule-eval": schedule_evals,
-            "build-csv": build_csv,
             "collect-results": collect_results,
             "clean-cache": lambda: clear_task_cache(),
         },
