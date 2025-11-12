@@ -68,7 +68,7 @@ export UV_TOOL_DIR="/p/project1/synthlaion/$USER/.cache/uv-tool-cache"
 Install directly from the git repository using uv:
 
 ```bash
-uv tool install git+https://github.com/OpenEuroLLM/oellm-cli.git
+uv tool install -p 3.12 git+https://github.com/OpenEuroLLM/oellm-cli.git
 ```
 
 This makes the `oellm` command available globally in your shell.
