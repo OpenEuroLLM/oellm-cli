@@ -21,7 +21,7 @@ A package for running OELLM CLI workflows across multiple HPC clusters using SLU
 
 ```bash
 # Install the package
-uv tool install git+https://github.com/OpenEuroLLM/oellm-cli.git
+uv tool install -p 3.12 git+https://github.com/OpenEuroLLM/oellm-cli.git
 
 # Run evaluations on multiple models and tasks
 oellm schedule-eval \
@@ -99,7 +99,7 @@ uv tool upgrade oellm
 
 If you had previously installed the package from a different source and would like to overwrite it, you can run the following command:
 ```bash
-uv tool install git+https://github.com/OpenEuroLLM/oellm-cli.git --force
+uv tool install -p 3.12 git+https://github.com/OpenEuroLLM/oellm-cli.git --force
 ```
 
 ## High-Level Evaluation Workflow
