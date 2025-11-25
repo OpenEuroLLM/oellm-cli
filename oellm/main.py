@@ -27,6 +27,8 @@ from oellm.utils import (
     capture_third_party_output_from_kwarg,
 )
 
+from oellm.ingest import ingest_results
+
 
 @dataclass
 class EvaluationJob:
@@ -50,6 +52,7 @@ def schedule_evals(
     dry_run: bool = False,
     skip_checks: bool = False,
     trust_remote_code: bool = True,
+    sync: bool = True
 ) -> None:
     """
     Schedule evaluation jobs for a given set of models, tasks, and number of shots.
@@ -293,6 +296,7 @@ def schedule_evals(
         log_dir=evals_dir / "slurm_logs",
         evals_dir=str(evals_dir / "results"),
         time_limit=time_limit,  # Dynamic time limit
+        sync_enabled=str(sync),
     )
 
     # substitute any $ENV_VAR occurrences
@@ -633,6 +637,7 @@ def main():
         {
             "schedule-eval": schedule_evals,
             "collect-results": collect_results,
+            "ingest-results": ingest_results,
             "clean-cache": lambda: clear_task_cache(),
         },
         as_positional=False,

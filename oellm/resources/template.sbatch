@@ -149,3 +149,12 @@ do
 done
 
 echo "Job $SLURM_ARRAY_TASK_ID finished."
+
+if [ "{sync_enabled}" == "True" ]; then
+    echo "----------------------------------------------------"
+    echo "🔄 Syncing results to Database..."
+    echo "----------------------------------------------------"
+        
+    oellm ingest-results --results_dir "{evals_dir}" --verbose True
+    
+    echo "Sync attempt completed."
