@@ -1,4 +1,5 @@
 import logging
+import math
 import os
 import re
 import subprocess
@@ -8,7 +9,6 @@ from importlib.resources import files
 from pathlib import Path
 from string import Template
 
-import math
 import pandas as pd
 from jsonargparse import auto_cli
 

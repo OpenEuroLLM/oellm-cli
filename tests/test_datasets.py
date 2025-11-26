@@ -1,28 +1,23 @@
-"""Test that all datasets specified in task-groups.yaml exist on HuggingFace.
-
-Run directly: python tests/test_datasets.py
-Run with pytest: pytest tests/test_datasets.py -v
-"""
-
 import sys
 from importlib.resources import files
-from pathlib import Path
 
 import pytest
 import yaml
 from datasets import get_dataset_config_names
 from huggingface_hub import dataset_info
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 from oellm.task_groups import DatasetSpec, TaskGroup, _parse_task_groups
 
 
 def collect_all_dataset_specs() -> list[DatasetSpec]:
     """Collect all unique dataset specs from all task groups."""
-    data = yaml.safe_load((files("oellm.resources") / "task-groups.yaml").read_text()) or {}
+    data = (
+        yaml.safe_load((files("oellm.resources") / "task-groups.yaml").read_text()) or {}
+    )
 
-    all_group_names = list(data.get("task_groups", {}).keys()) + list(data.get("super_groups", {}).keys())
+    all_group_names = list(data.get("task_groups", {}).keys()) + list(
+        data.get("super_groups", {}).keys()
+    )
     parsed = _parse_task_groups(all_group_names)
 
     specs: list[DatasetSpec] = []
@@ -59,7 +54,10 @@ def check_dataset_exists(spec: DatasetSpec) -> tuple[bool, str]:
     if spec.subset:
         configs = get_dataset_config_names(spec.repo_id, trust_remote_code=True)
         if spec.subset not in configs:
-            return False, f"Subset '{spec.subset}' not found in {spec.repo_id}. Available: {configs[:10]}{'...' if len(configs) > 10 else ''}"
+            return (
+                False,
+                f"Subset '{spec.subset}' not found in {spec.repo_id}. Available: {configs[:10]}{'...' if len(configs) > 10 else ''}",
+            )
 
     return True, f"OK: {label}"
 
@@ -98,7 +96,7 @@ def main():
             print(f"✗ - {message}")
             failed.append((spec, message))
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Results: {len(passed)} passed, {len(failed)} failed")
 
     if failed:
@@ -113,4 +111,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

@@ -47,7 +47,14 @@ class TaskGroup:
             task_n_shots = task_data.get("n_shots")
             task_dataset = task_data.get("dataset")
             task_subset = task_data.get("subset")
-            tasks.append(_Task(name=task_name, n_shots=task_n_shots, dataset=task_dataset, subset=task_subset))
+            tasks.append(
+                _Task(
+                    name=task_name,
+                    n_shots=task_n_shots,
+                    dataset=task_dataset,
+                    subset=task_subset,
+                )
+            )
 
         return cls(
             name=name,
@@ -184,7 +191,9 @@ def _collect_dataset_specs(group_names: Iterable[str]) -> list[DatasetSpec]:
 
 def _build_task_dataset_map() -> dict[str, DatasetSpec]:
     """Build a mapping from task names to their dataset specs from all task groups."""
-    data = yaml.safe_load((files("oellm.resources") / "task-groups.yaml").read_text()) or {}
+    data = (
+        yaml.safe_load((files("oellm.resources") / "task-groups.yaml").read_text()) or {}
+    )
 
     all_group_names = list(data.get("task_groups", {}).keys())
     parsed = _parse_task_groups(all_group_names)

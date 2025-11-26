@@ -120,7 +120,7 @@ export UV_PYTHON_INSTALL_DIR="/p/project1/<project>/$USER/.local/share/uv/python
 export UV_TOOL_DIR="/p/project1/<project>/$USER/.cache/uv-tool-cache"
 ```
 
-## Supported Clusters: 
+## Supported Clusters:
 We support: Leonardo, Lumi, and Jureca
 
 ## CLI Options
