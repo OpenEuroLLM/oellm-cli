@@ -15,16 +15,6 @@ import yaml
 from rich.console import Console
 from rich.logging import RichHandler
 
-from oellm.task_cache import (
-    capture_hf_dataset_calls,
-    dedupe_calls,
-    prewarm_from_payload,
-    task_cache_get_payload,
-    task_cache_lookup,
-    task_cache_mark_resolved,
-    task_cache_set_payload,
-)
-
 _RICH_CONSOLE: Console | None = None
 
 
@@ -263,158 +253,32 @@ def _process_model_paths(models: Iterable[str]):
                 )
 
 
-def _pre_download_task_datasets(
-    tasks: Iterable[str], trust_remote_code: bool = True
+def _pre_download_datasets_from_specs(
+    specs: Iterable, trust_remote_code: bool = True
 ) -> None:
-    processed: set[str] = set()
+    from datasets import load_dataset
 
-    misses: list[str] = []
-    console = get_console()
-    with console.status("Checking lm-eval datasets…", spinner="dots") as status:
-        cache_hits = 0
-        for task_name in tasks:
-            if not isinstance(task_name, str) or task_name in processed:
-                continue
-            processed.add(task_name)
-            if task_cache_lookup("lm-eval", task_name):
-                cache_hits += 1
-                status.update(
-                    f"Checking lm-eval datasets… {cache_hits} cached, {len(misses)} to prepare"
-                )
-                continue
-            misses.append(task_name)
-            status.update(
-                f"Checking lm-eval datasets… {cache_hits} cached, {len(misses)} to prepare"
-            )
-
-    if not misses:
-        with console.status(
-            f"Using cached lm-eval datasets for {len(processed)} tasks…",
-            spinner="dots",
-        ) as status:
-            for task_name in processed:
-                if task_cache_lookup("lm-eval", task_name):
-                    status.update(f"Loading cached dataset for '{task_name}'…")
-                    prewarm_from_payload(
-                        task_cache_get_payload("lm-eval", task_name),
-                        trust_remote_code=trust_remote_code,
-                    )
+    specs_list = list(specs)
+    if not specs_list:
         return
 
-    from datasets import DownloadMode  # type: ignore
-    from lm_eval.tasks import TaskManager  # type: ignore
-
-    tm = TaskManager()
-
-    with console.status(
-        f"Preparing lm-eval datasets… {len(misses)} remaining",
-        spinner="dots",
-    ) as status:
-        for idx, task_name in enumerate(misses, 1):
-            status.update(f"Preparing dataset for '{task_name}' ({idx}/{len(misses)})")
-
-            task_config = {
-                "task": task_name,
-                "dataset_kwargs": {"trust_remote_code": trust_remote_code},
-            }
-
-            with capture_hf_dataset_calls() as captured_calls:
-                task_objects = tm.load_config(task_config)
-
-                stack = [task_objects]
-                while stack:
-                    current = stack.pop()
-                    if isinstance(current, dict):
-                        stack.extend(current.values())
-                        continue
-                    if hasattr(current, "download") and callable(current.download):
-                        try:
-                            current.download(
-                                download_mode=DownloadMode.REUSE_DATASET_IF_EXISTS
-                            )  # type: ignore[arg-type]
-                        except TypeError as e:
-                            logging.error(
-                                f"Failed to download dataset for task '{task_name}' with download_mode=REUSE_DATASET_IF_EXISTS: {e}"
-                            )
-                            current.download()  # type: ignore[misc]
-
-            if captured_calls:
-                payload = {"calls": dedupe_calls(captured_calls)}
-                task_cache_set_payload("lm-eval", task_name, payload)
-            task_cache_mark_resolved("lm-eval", task_name)
-            logging.debug(f"Finished dataset preparation for task '{task_name}'.")
-
-
-def _pre_download_lighteval_datasets(tasks: Iterable[str]) -> None:
-    seen: set[str] = set()
-    misses: list[str] = []
-    tasks = [str(task).strip() for task in tasks]
     console = get_console()
-    with console.status("Checking lighteval datasets…", spinner="dots") as status:
-        cache_hits = 0
-        for task in tasks:
-            if not task or task in seen:
-                continue
-            seen.add(task)
-            if task_cache_lookup("lighteval", task):
-                cache_hits += 1
-                status.update(
-                    f"Checking lighteval datasets… {cache_hits} cached, {len(misses)} to prepare"
-                )
-                continue
-            misses.append(task)
-            status.update(
-                f"Checking lighteval datasets… {cache_hits} cached, {len(misses)} to prepare"
-            )
-
-    if not misses:
-        with console.status(
-            f"Using cached lighteval datasets for {len(seen)} tasks…",
-            spinner="dots",
-        ):
-            for task in seen:
-                if task_cache_lookup("lighteval", task):
-                    prewarm_from_payload(
-                        task_cache_get_payload("lighteval", task),
-                        trust_remote_code=True,
-                    )
-        return
 
     with console.status(
-        f"Preparing lighteval datasets… {len(misses)} remaining",
+        f"Downloading datasets… {len(specs_list)} datasets",
         spinner="dots",
     ) as status:
-        for idx, task in enumerate(misses, 1):
-            status.update(f"Preparing dataset for '{task}' ({idx}/{len(misses)})")
-            with capture_hf_dataset_calls() as captured_calls:
-                from lighteval.tasks.lighteval_task import LightevalTask
-                from lighteval.tasks.registry import (
-                    TRUNCATE_FEW_SHOTS_DEFAULTS,
-                    Registry,
-                )
+        for idx, spec in enumerate(specs_list, 1):
+            label = f"{spec.repo_id}" + (f"/{spec.subset}" if spec.subset else "")
+            status.update(f"Downloading '{label}' ({idx}/{len(specs_list)})")
 
-                reg = Registry(custom_tasks="lighteval.tasks.multilingual.tasks")
-                truncate_default = int(TRUNCATE_FEW_SHOTS_DEFAULTS)
-
-                spec = task
-                if "|" not in spec:
-                    spec = f"lighteval|{spec}|0|{truncate_default}"
-                elif spec.count("|") == 1:
-                    spec = f"{spec}|0|{truncate_default}"
-                elif spec.count("|") == 2:
-                    spec = f"{spec}|{truncate_default}"
-
-                configs = reg.get_tasks_configs(spec)
-                task_dict = reg.get_tasks_from_configs(configs)
-                LightevalTask.load_datasets(task_dict)
-
-            payload = (
-                {"calls": dedupe_calls(captured_calls)}
-                if captured_calls
-                else {"calls": []}
+            load_dataset(
+                spec.repo_id,
+                name=spec.subset,
+                trust_remote_code=trust_remote_code,
             )
-            task_cache_set_payload("lighteval", task, payload)
-            task_cache_mark_resolved("lighteval", task)
+
+            logging.debug(f"Finished downloading dataset '{label}'.")
 
 
 @contextmanager
@@ -483,7 +347,7 @@ def capture_third_party_output(verbose: bool = False):
             return orig_module_debug(msg, *args, **kwargs)
         return None
 
-    builtins.print = filtered_print
+    builtins.print = filtered_print  # type: ignore
     logging.Logger.info = filtered_logger_info  # type: ignore[assignment]
     logging.Logger.debug = filtered_logger_debug  # type: ignore[assignment]
     logging.info = filtered_module_info  # type: ignore[assignment]

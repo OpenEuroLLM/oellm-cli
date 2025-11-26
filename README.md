@@ -1,147 +1,151 @@
 # OpenEuroLLM CLI (oellm)
 
-A package for running OELLM CLI workflows across multiple HPC clusters using SLURM job arrays and Singularity containers.
+A lightweight CLI for scheduling LLM evaluations across multiple HPC clusters using SLURM job arrays and Singularity containers.
 
-## Currently supported workflows
-- Schedule evaluations on multiple models and tasks on all clusters ✅ `oellm schedule-eval ...`
-- Restart failed evaluations (e.g., due to node failures) ✅ `oellm collect-results ... --reschedule true`
+## Features
 
-## Planned workflows
-- Sync and download evaluation results from all clusters via a shared data layer
-- Schedule training jobs on all clusters
-- Schedule conversions from MegatronLM to HuggingFace
+- **Schedule evaluations** on multiple models and tasks: `oellm schedule-eval`
+- **Collect results** and check for missing evaluations: `oellm collect-results`
+- **Task groups** for pre-defined evaluation suites with automatic dataset pre-downloading
+- **Multi-cluster support** with auto-detection (Leonardo, LUMI, JURECA)
 
-## Quick Example
+## Quick Start
 
-**Prerequisites:**
-- install [uv](https://docs.astral.sh/uv/#installation)
+**Prerequisites:** Install [uv](https://docs.astral.sh/uv/#installation)
 
 ```bash
 # Install the package
 uv tool install -p 3.12 git+https://github.com/OpenEuroLLM/oellm-cli.git
 
-# Run evaluations on multiple models and tasks
+# Run evaluations using a task group (recommended)
 oellm schedule-eval \
     --models "microsoft/DialoGPT-medium,EleutherAI/pythia-160m" \
+    --task_groups "open-sci-0.01"
+
+# Or specify individual tasks
+oellm schedule-eval \
+    --models "EleutherAI/pythia-160m" \
     --tasks "hellaswag,mmlu" \
     --n_shot 5
 ```
 
 This will automatically:
 - Detect your current HPC cluster (Leonardo, LUMI, or JURECA)
-- Download and cache the specified models and datasets
-- Generate a SLURM job array to evaluate all model-task combinations
-- Submit the jobs with appropriate cluster-specific resource allocations
+- Download and cache the specified models
+- Pre-download datasets for known tasks (see warning below)
+- Generate and submit a SLURM job array with appropriate cluster-specific resources
 
-In case you meet HuggingFace quotas issues, make sure you are logged in by setting your `HF_TOKEN` and that you are part of [OpenEuroLLM](https://huggingface.co/OpenEuroLLM) organization.
+## Task Groups
 
-You can also directly schedule using a CSV file:
+Task groups are pre-defined evaluation suites in [`task-groups.yaml`](oellm/resources/task-groups.yaml). Each group specifies tasks, their n-shot settings, and HuggingFace dataset mappings.
+
+Available task groups:
+- `open-sci-0.01` - Standard benchmarks (COPA, MMLU, HellaSwag, ARC, etc.)
+- `belebele-eu-5-shot` - Belebele European language tasks
+- `flores-200-eu-to-eng` / `flores-200-eng-to-eu` - Translation tasks
+- `global-mmlu-eu` - Global MMLU in EU languages
+- `mgsm-eu` - Multilingual GSM benchmarks
+- `generic-multilingual` - XWinograd, XCOPA, XStoryCloze
+- `include` - INCLUDE benchmarks
+
+Super groups combine multiple task groups:
+- `oellm-multilingual` - All multilingual benchmarks combined
+
+```bash
+# Use a task group
+oellm schedule-eval --models "model-name" --task_groups "open-sci-0.01"
+
+# Use multiple task groups
+oellm schedule-eval --models "model-name" --task_groups "belebele-eu-5-shot,global-mmlu-eu"
+
+# Use a super group
+oellm schedule-eval --models "model-name" --task_groups "oellm-multilingual"
+```
+
+## ⚠️ Dataset Pre-Download Warning
+
+**Datasets are only automatically pre-downloaded for tasks defined in [`task-groups.yaml`](oellm/resources/task-groups.yaml).**
+
+If you use custom tasks via `--tasks` that are not in the task groups registry, the CLI will attempt to look them up but **cannot guarantee the datasets will be cached**. This may cause failures on compute nodes that don't have network access.
+
+**Recommendation:** Use `--task_groups` when possible, or ensure your custom task datasets are already cached in `$HF_HOME` before scheduling.
+
+## Collecting Results
+
+After evaluations complete, collect results into a CSV:
+
+```bash
+# Basic collection
+oellm collect-results /path/to/eval-output-dir
+
+# Check for missing evaluations and create a CSV for re-running them
+oellm collect-results /path/to/eval-output-dir --check --output_csv results.csv
+```
+
+The `--check` flag compares completed results against `jobs.csv` and outputs a `results_missing.csv` that can be used to re-schedule failed jobs:
+
+```bash
+oellm schedule-eval --eval_csv_path results_missing.csv
+```
+
+## CSV-Based Scheduling
+
+For full control, provide a CSV file with columns: `model_path`, `task_path`, `n_shot`, and optionally `eval_suite`:
+
 ```bash
 oellm schedule-eval --eval_csv_path custom_evals.csv
 ```
 
 ## Installation
 
-### JURECA/JSC Specifics
-
-Due to the limit space in `$HOME` on JSC clusters, you must set these `uv` specific environment variables to avoid running out of space:
-
-```bash
-export UV_CACHE_DIR="<some-workspace-dir>/.cache/uv-cache"
-export UV_INSTALL_DIR="<some-workspace>/.local"
-export UV_PYTHON_INSTALL_DIR="<some-workspace>/.local/share/uv/python"
-export UV_TOOL_DIR="<some-workspace-dir>/.cache/uv-tool-cache"
-```
-
-You can set these variables in your `.bashrc` or `.zshrc` file, depending on your shell of preference.
-
-E.g., I have a user-folder in the `synthlaion` project, so I set the following variables:
-```bash
-export UV_CACHE_DIR="/p/project1/synthlaion/$USER/.cache/uv-cache"
-export UV_INSTALL_DIR="/p/project1/synthlaion/$USER/.local"
-export UV_PYTHON_INSTALL_DIR="/p/project1/synthlaion/$USER/.local/share/uv/python"
-export UV_TOOL_DIR="/p/project1/synthlaion/$USER/.cache/uv-tool-cache"
-```
-
 ### General Installation
-
-Install directly from the git repository using uv:
 
 ```bash
 uv tool install -p 3.12 git+https://github.com/OpenEuroLLM/oellm-cli.git
 ```
 
-This makes the `oellm` command available globally in your shell.
-
-If you've already installed the package, you can run the following command to update it:
+Update to latest:
 ```bash
 uv tool upgrade oellm
 ```
 
-If you had previously installed the package from a different source and would like to overwrite it, you can run the following command:
-```bash
-uv tool install -p 3.12 git+https://github.com/OpenEuroLLM/oellm-cli.git --force
-```
+### JURECA/JSC Specifics
 
-## High-Level Evaluation Workflow
-
-The `oellm` package orchestrates distributed LLM evaluations through the following workflow:
-
-### 1. **Cluster Auto-Detection**
-- Automatically detects the current HPC cluster based on hostname patterns
-- Loads cluster-specific configurations from [`clusters.yaml`](oellm/resources/clusters.yaml) including:
-  - SLURM partition and account settings
-  - Shared storage paths for models, datasets, and results
-  - GPU allocation and queue limits
-  - Singularity container specifications
-
-### 2. **Resource Preparation**
-- **Model Handling**: Processes both local model checkpoints and Hugging Face Hub models
-  - For local paths: Automatically discovers and expands training checkpoint directories
-  - For HF models: Pre-downloads to shared cache (`$HF_HOME`) for offline access on compute nodes
-- **Dataset Caching**: Pre-downloads all evaluation datasets using lm-evaluation-harness TaskManager
-- **Container Management**: Ensures the appropriate Singularity container is available for the target cluster
-
-### 3. **Job Generation & Scheduling**
-- Creates a comprehensive CSV manifest of all model-task-shot combinations
-- Generates a SLURM batch script from a template with cluster-specific parameters
-- Submits a job array where each array task processes a subset of evaluations
-- Respects queue limits and current user load to avoid overwhelming the scheduler
-
-### 4. **Distributed Execution**
-- Each SLURM array job runs in a Singularity container with:
-  - GPU access (NVIDIA CUDA or AMD ROCm as appropriate)
-  - Mounted shared storage for models, datasets, and output
-  - Offline execution using pre-cached resources
-- Uses `lm-evaluation-harness` for the actual model evaluation
-- Outputs results as JSON files
-
-### 5. **Output Organization**
-Results are organized in timestamped directories under `$EVAL_OUTPUT_DIR/$USER/`:
-```
-2024-01-15-14-30-45/
-├── jobs.csv              # Complete evaluation manifest
-├── submit_evals.sbatch    # Generated SLURM script
-├── slurm_logs/           # SLURM output/error logs
-└── results/              # Evaluation JSON outputs
-```
-
-## Supported Clusters
-
-Currently supports three HPC clusters:
-
-- **LEONARDO** - NVIDIA A100 GPUs (CUDA)
-- **LUMI** - AMD MI250X GPUs (ROCm)
-- **JURECA** - NVIDIA A100 GPUs (CUDA)
-
-Each cluster has pre-configured:
-- Shared evaluation directories with appropriate quotas
-- Optimized Singularity containers with evaluation dependencies
-- Account and partition settings for the OpenEuroLLM project
-
-## Development and Testing
-Run in download-only mode to prepare resources without submitting jobs:
+Due to limited space in `$HOME` on JSC clusters, set these environment variables:
 
 ```bash
-oellm schedule-eval --models "EleutherAI/pythia-160m" --tasks "hellaswag" --n_shot 0 --download_only True
+export UV_CACHE_DIR="/p/project1/<project>/$USER/.cache/uv-cache"
+export UV_INSTALL_DIR="/p/project1/<project>/$USER/.local"
+export UV_PYTHON_INSTALL_DIR="/p/project1/<project>/$USER/.local/share/uv/python"
+export UV_TOOL_DIR="/p/project1/<project>/$USER/.cache/uv-tool-cache"
 ```
+
+## Supported Clusters: 
+We support: Leonardo, Lumi, and Jureca
+
+## CLI Options
+
+```bash
+oellm schedule-eval --help
+```
+
+## Development
+
+```bash
+# Clone and install in dev mode
+git clone https://github.com/OpenEuroLLM/oellm-cli.git
+cd oellm-cli
+uv sync --extra dev
+
+# Run dataset validation tests
+uv run pytest tests/test_datasets.py -v
+
+# Download-only mode for testing
+uv run oellm schedule-eval --models "EleutherAI/pythia-160m" --task_groups "open-sci-0.01" --download_only
+```
+
+## Troubleshooting
+
+**HuggingFace quota issues**: Ensure you're logged in with `HF_TOKEN` and are part of the [OpenEuroLLM](https://huggingface.co/OpenEuroLLM) organization.
+
+**Dataset download failures on compute nodes**: Use `--task_groups` for automatic dataset caching, or pre-download datasets manually before scheduling.

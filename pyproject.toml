@@ -9,10 +9,6 @@ dependencies = [
     "jsonargparse",
     "datasets",
     "rich",
-    "torch",
-    "lm-eval",
-    "lighteval[extended_tasks,multilingual] @ git+https://github.com/huggingface/lighteval.git@63424f4e795ecc577b90646381b374af3a627978",
-    "pydantic<2.12",
     "huggingface_hub",
     "pyyaml",
 ]
@@ -34,19 +30,6 @@ build-backend = "uv_build"
 module-name = "oellm"
 module-root = ""
 include = ["oellm/resources/*"]
-
-[tool.uv.sources]
-torch = [
-    { index = "pytorch-cpu" },
-]
-torchvision = [
-    { index = "pytorch-cpu" },
-]
-
-[[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-explicit = true
 
 [tool.ruff]
 line-length = 90
