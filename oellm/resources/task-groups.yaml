@@ -5,60 +5,102 @@ task_groups:
     tasks:
       - task: copa
         n_shots: [0]
+        dataset: super_glue
+        subset: copa
       - task: social_iqa
         n_shots: [0]
+        dataset: allenai/social_i_qa
       - task: openbookqa
         n_shots: [0]
+        dataset: allenai/openbookqa
       - task: lambada_openai
         n_shots: [0]
+        dataset: EleutherAI/lambada_openai
       - task: winogrande
         n_shots: [0]
+        dataset: allenai/winogrande
+        subset: winogrande_xl
       - task: mmlu
         n_shots: [5]
+        dataset: cais/mmlu
+        subset: all
       - task: hellaswag
         n_shots: [10]
+        dataset: Rowan/hellaswag
       - task: arc_easy
         n_shots: [10]
+        dataset: allenai/ai2_arc
+        subset: ARC-Easy
       - task: arc_challenge
         n_shots: [10]
+        dataset: allenai/ai2_arc
+        subset: ARC-Challenge
       - task: commonsense_qa
         n_shots: [10]
+        dataset: tau/commonsense_qa
       - task: piqa
         n_shots: [10]
+        dataset: ybisk/piqa
       - task: boolq
         n_shots: [10]
+        dataset: google/boolq
   belebele-eu-5-shot:
     description: "Belebele European language tasks"
     suite: lm-eval-harness
     n_shots: [5]
+    dataset: facebook/belebele
     tasks:
       - task: belebele_bul_Cyrl
+        subset: bul_Cyrl
       - task: belebele_hrv_Latn
+        subset: hrv_Latn
       - task: belebele_ces_Latn
+        subset: ces_Latn
       - task: belebele_dan_Latn
+        subset: dan_Latn
       - task: belebele_nld_Latn
+        subset: nld_Latn
       - task: belebele_eng_Latn
+        subset: eng_Latn
       - task: belebele_est_Latn
+        subset: est_Latn
       - task: belebele_fin_Latn
+        subset: fin_Latn
       - task: belebele_fra_Latn
+        subset: fra_Latn
       - task: belebele_deu_Latn
+        subset: deu_Latn
       - task: belebele_ell_Grek
+        subset: ell_Grek
       - task: belebele_hun_Latn
+        subset: hun_Latn
       - task: belebele_ita_Latn
+        subset: ita_Latn
       - task: belebele_lvs_Latn
+        subset: lvs_Latn
       - task: belebele_lit_Latn
+        subset: lit_Latn
       - task: belebele_mlt_Latn
+        subset: mlt_Latn
       - task: belebele_pol_Latn
+        subset: pol_Latn
       - task: belebele_por_Latn
+        subset: por_Latn
       - task: belebele_ron_Latn
+        subset: ron_Latn
       - task: belebele_slk_Latn
+        subset: slk_Latn
       - task: belebele_slv_Latn
+        subset: slv_Latn
       - task: belebele_spa_Latn
+        subset: spa_Latn
       - task: belebele_swe_Latn
+        subset: swe_Latn
   flores-200-eu-to-eng:
     description: "Flores 200 EU to English translation"
     suite: lighteval
     n_shots: [0]
+    dataset: facebook/flores
     tasks:
       - task: flores200:bul_Cyrl-eng_Latn
       - task: flores200:ces_Latn-eng_Latn
@@ -87,6 +129,7 @@ task_groups:
     description: "Flores 200 English to EU translation"
     suite: lighteval
     n_shots: [0]
+    dataset: facebook/flores
     tasks:
       - task: flores200:eng_Latn-bul_Cyrl
       - task: flores200:eng_Latn-ces_Latn
@@ -115,34 +158,58 @@ task_groups:
     description: "Global MMLU EU tasks"
     suite: lm-eval-harness
     n_shots: [5]
+    dataset: CohereForAI/Global-MMLU
     tasks:
       - task: global_mmlu_full_cs
+        subset: cs
       - task: global_mmlu_full_de
+        subset: de
       - task: global_mmlu_full_el
+        subset: el
       - task: global_mmlu_full_en
+        subset: en
       - task: global_mmlu_full_es
+        subset: es
       - task: global_mmlu_full_fr
+        subset: fr
       - task: global_mmlu_full_it
+        subset: it
       - task: global_mmlu_full_lt
+        subset: lt
       - task: global_mmlu_full_nl
+        subset: nl
       - task: global_mmlu_full_pl
+        subset: pl
       - task: global_mmlu_full_pt
+        subset: pt
       - task: global_mmlu_full_ro
+        subset: ro
       - task: global_mmlu_full_ru
+        subset: ru
       - task: global_mmlu_full_sr
+        subset: sr
       - task: global_mmlu_full_sv
+        subset: sv
       - task: global_mmlu_full_tr
+        subset: tr
       - task: global_mmlu_full_uk
+        subset: uk
       - task: global_mmlu_full_he
+        subset: he
   mgsm-eu:
     description: "EU Language GSM benchmarks in Aya Expanse"
     suite: lm-eval-harness
     n_shots: [5]
+    dataset: juletxara/mgsm
     tasks:
       - task: mgsm_native_cot_en
+        subset: en
       - task: mgsm_native_cot_de
+        subset: de
       - task: mgsm_native_cot_es
+        subset: es
       - task: mgsm_native_cot_fr
+        subset: fr
 
   generic-multilingual:
     description: "Generic multilingual benchmarks in Aya Expanse"
@@ -150,39 +217,68 @@ task_groups:
     n_shots: [0]
     tasks:
       - task: xwinograd
+        dataset: Muennighoff/xwinograd
       - task: xcopa
+        dataset: cambridgeltl/xcopa
       - task: xstorycloze
+        dataset: juletxara/xstory_cloze
 
   include:
     description: "INCLUDE benchmarks in Aya Expanse"
     suite: lm-eval-harness
     n_shots: [0]
+    dataset: CohereForAI/include-base-44
     tasks:
       - task: include_base_44_albanian
+        subset: Albanian
       - task: include_base_44_armenian
+        subset: Armenian
       - task: include_base_44_azerbaijani
+        subset: Azerbaijani
       - task: include_base_44_basque
+        subset: Basque
       - task: include_base_44_belarusian
+        subset: Belarusian
       - task: include_base_44_bulgarian
+        subset: Bulgarian
       - task: include_base_44_croatian
+        subset: Croatian
       - task: include_base_44_dutch
+        subset: Dutch
       - task: include_base_44_estonian
+        subset: Estonian
       - task: include_base_44_finnish
+        subset: Finnish
       - task: include_base_44_french
+        subset: French
       - task: include_base_44_georgian
+        subset: Georgian
       - task: include_base_44_german
+        subset: German
       - task: include_base_44_greek
+        subset: Greek
       - task: include_base_44_hungarian
+        subset: Hungarian
       - task: include_base_44_italian
+        subset: Italian
       - task: include_base_44_lithuanian
+        subset: Lithuanian
       - task: include_base_44_north macedonian
+        subset: North Macedonian
       - task: include_base_44_polish
+        subset: Polish
       - task: include_base_44_portuguese
+        subset: Portuguese
       - task: include_base_44_russian
+        subset: Russian
       - task: include_base_44_serbian
+        subset: Serbian
       - task: include_base_44_spanish
+        subset: Spanish
       - task: include_base_44_turkish
+        subset: Turkish
       - task: include_base_44_ukrainian
+        subset: Ukrainian
 
 super_groups:
   oellm-multilingual:

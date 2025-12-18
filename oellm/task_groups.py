@@ -6,9 +6,17 @@ import yaml
 
 
 @dataclass
+class DatasetSpec:
+    repo_id: str
+    subset: str | None = None
+
+
+@dataclass
 class _Task:
     name: str
     n_shots: list[int] | None = None
+    dataset: str | None = None
+    subset: str | None = None
 
 
 @dataclass
@@ -18,6 +26,7 @@ class TaskGroup:
     suite: str
     description: str
     n_shots: list[int] | None = None
+    dataset: str | None = None
 
     def __post_init__(self):
         for task in self.tasks:
@@ -27,6 +36,8 @@ class TaskGroup:
                 raise ValueError(
                     f"N_shots is not set for task {task.name} and no default n_shots is set for the task group: {self.name}"
                 )
+            if task.dataset is None and self.dataset is not None:
+                task.dataset = self.dataset
 
     @classmethod
     def from_dict(cls, name: str, data: dict) -> "TaskGroup":
@@ -34,7 +45,16 @@ class TaskGroup:
         for task_data in data["tasks"]:
             task_name = task_data["task"]
             task_n_shots = task_data.get("n_shots")
-            tasks.append(_Task(name=task_name, n_shots=task_n_shots))
+            task_dataset = task_data.get("dataset")
+            task_subset = task_data.get("subset")
+            tasks.append(
+                _Task(
+                    name=task_name,
+                    n_shots=task_n_shots,
+                    dataset=task_dataset,
+                    subset=task_subset,
+                )
+            )
 
         return cls(
             name=name,
@@ -42,6 +62,7 @@ class TaskGroup:
             suite=data["suite"],
             description=data["description"],
             n_shots=data.get("n_shots"),
+            dataset=data.get("dataset"),
         )
 
 
@@ -140,3 +161,70 @@ def _expand_task_groups(group_names: Iterable[str]) -> list[TaskGroupResult]:
                         )
 
     return results
+
+
+def _collect_dataset_specs(group_names: Iterable[str]) -> list[DatasetSpec]:
+    parsed = _parse_task_groups([str(n).strip() for n in group_names if str(n).strip()])
+
+    specs: list[DatasetSpec] = []
+    seen: set[tuple[str, str | None]] = set()
+
+    def add_spec(dataset: str | None, subset: str | None):
+        if dataset is None:
+            return
+        key = (dataset, subset)
+        if key not in seen:
+            seen.add(key)
+            specs.append(DatasetSpec(repo_id=dataset, subset=subset))
+
+    for _, group in parsed.items():
+        if isinstance(group, TaskGroup):
+            for t in group.tasks:
+                add_spec(t.dataset, t.subset)
+        else:
+            for g in group.task_groups:
+                for t in g.tasks:
+                    add_spec(t.dataset, t.subset)
+
+    return specs
+
+
+def _build_task_dataset_map() -> dict[str, DatasetSpec]:
+    """Build a mapping from task names to their dataset specs from all task groups."""
+    data = (
+        yaml.safe_load((files("oellm.resources") / "task-groups.yaml").read_text()) or {}
+    )
+
+    all_group_names = list(data.get("task_groups", {}).keys())
+    parsed = _parse_task_groups(all_group_names)
+
+    task_map: dict[str, DatasetSpec] = {}
+
+    for _, group in parsed.items():
+        if isinstance(group, TaskGroup):
+            for t in group.tasks:
+                if t.dataset and t.name not in task_map:
+                    task_map[t.name] = DatasetSpec(repo_id=t.dataset, subset=t.subset)
+
+    return task_map
+
+
+def _lookup_dataset_specs_for_tasks(task_names: Iterable[str]) -> list[DatasetSpec]:
+    """Look up dataset specs for individual task names from the task groups registry."""
+    task_map = _build_task_dataset_map()
+
+    specs: list[DatasetSpec] = []
+    seen: set[tuple[str, str | None]] = set()
+
+    for task_name in task_names:
+        task_name = str(task_name).strip()
+        if not task_name:
+            continue
+        spec = task_map.get(task_name)
+        if spec:
+            key = (spec.repo_id, spec.subset)
+            if key not in seen:
+                seen.add(key)
+                specs.append(spec)
+
+    return specs

@@ -1,4 +1,5 @@
 import logging
+import math
 import os
 import re
 import subprocess
@@ -8,20 +9,21 @@ from importlib.resources import files
 from pathlib import Path
 from string import Template
 
-import numpy as np
 import pandas as pd
 from jsonargparse import auto_cli
 
-from oellm.task_cache import clear_task_cache
-from oellm.task_groups import _expand_task_groups
+from oellm.task_groups import (
+    _collect_dataset_specs,
+    _expand_task_groups,
+    _lookup_dataset_specs_for_tasks,
+)
 from oellm.utils import (
     _ensure_singularity_image,
     _expand_local_model_paths,
     _filter_warnings,
     _load_cluster_env,
     _num_jobs_in_queue,
-    _pre_download_lighteval_datasets,
-    _pre_download_task_datasets,
+    _pre_download_datasets_from_specs,
     _process_model_paths,
     _setup_logging,
     capture_third_party_output_from_kwarg,
@@ -199,17 +201,24 @@ def schedule_evals(
     # Ensure that all datasets required by the tasks are cached locally to avoid
     # network access on compute nodes.
     if not skip_checks:
-        lm_eval_tasks = df[df["eval_suite"].isin({"lm-eval-harness"})][
-            "task_path"
-        ].unique()
-        if len(lm_eval_tasks) > 0:
-            _pre_download_task_datasets(
-                lm_eval_tasks, trust_remote_code=trust_remote_code
+        dataset_specs = []
+        if task_groups:
+            dataset_specs = _collect_dataset_specs(
+                [g.strip() for g in task_groups.split(",")]
             )
-        # Pre-download LightEval datasets (best-effort, incremental support)
-        light_eval_tasks = df[df["eval_suite"].isin({"light-eval"})]["task_path"].unique()
-        if len(light_eval_tasks) > 0:
-            _pre_download_lighteval_datasets(light_eval_tasks)
+        else:
+            # Look up individual tasks in task groups registry
+            all_tasks = df["task_path"].unique().tolist()
+            dataset_specs = _lookup_dataset_specs_for_tasks(all_tasks)
+            if not dataset_specs:
+                logging.info(
+                    "No dataset specs found for tasks; skipping dataset pre-download"
+                )
+
+        if dataset_specs:
+            _pre_download_datasets_from_specs(
+                dataset_specs, trust_remote_code=trust_remote_code
+            )
     else:
         logging.info("Skipping dataset pre-download (--skip-checks enabled)")
 
@@ -254,15 +263,15 @@ def schedule_evals(
     minutes_per_eval = 10  # Budget 10 minutes per eval
     total_minutes = total_evals * minutes_per_eval
     max_minutes_per_job = 18 * 60  # 18 hours
-    min_array_size_for_time = max(1, int(np.ceil(total_minutes / max_minutes_per_job)))
+    min_array_size_for_time = max(1, int(math.ceil(total_minutes / max_minutes_per_job)))
     desired_array_size = min(128, total_evals) if total_evals >= 128 else total_evals
     if desired_array_size < min_array_size_for_time:
         desired_array_size = min_array_size_for_time
     actual_array_size = min(remaining_queue_capacity, desired_array_size, total_evals)
-    evals_per_job = max(1, int(np.ceil(total_evals / actual_array_size)))
+    evals_per_job = max(1, int(math.ceil(total_evals / actual_array_size)))
     minutes_per_job = evals_per_job * minutes_per_eval
     minutes_with_margin = int(minutes_per_job * 1.2)
-    hours_with_margin = max(1, int(np.ceil(minutes_with_margin / 60)))
+    hours_with_margin = max(1, int(math.ceil(minutes_with_margin / 60)))
     hours_with_margin = max(hours_with_margin, 3)
     hours_with_margin = min(hours_with_margin, 23)
     time_limit = f"{hours_with_margin:02d}:59:00"
@@ -633,7 +642,6 @@ def main():
         {
             "schedule-eval": schedule_evals,
             "collect-results": collect_results,
-            "clean-cache": lambda: clear_task_cache(),
         },
         as_positional=False,
         description="OELLM: Multi-cluster evaluation tool for language models",
