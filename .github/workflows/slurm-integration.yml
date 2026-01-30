@@ -8,6 +8,7 @@ on:
       - 'oellm/**'
       - 'tests/integration/**'
       - '.github/workflows/slurm-integration.yml'
+      - 'apptainer/slurm-ci.def'
 
 jobs:
   slurm-integration:
@@ -131,10 +132,6 @@ jobs:
       - name: Install oellm
         run: uv sync
 
-      - name: Build test container
-        run: |
-          sudo apptainer --verbose build --mksquashfs-args="-comp lz4" eval_env-ci.sif tests/integration/ci.def
-
       - name: Set up test environment
         env:
           EVAL_BASE_DIR: /tmp/oellm-test
@@ -145,9 +142,6 @@ jobs:
           mkdir -p "$HF_HOME/hub"
           mkdir -p "$HF_DATASETS_CACHE"
           mkdir -p "$EVAL_BASE_DIR/$USER"
-
-          # Move container to expected location
-          mv eval_env-ci.sif "$EVAL_BASE_DIR/"
 
       - name: Run integration test (full mode)
         env:

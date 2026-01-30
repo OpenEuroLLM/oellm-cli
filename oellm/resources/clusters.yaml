@@ -41,5 +41,5 @@ ci:
   PARTITION: "gpu"
   ACCOUNT: "test"
   QUEUE_LIMIT: 10
-  EVAL_CONTAINER_IMAGE: "eval_env-ci.sif"
+  EVAL_CONTAINER_IMAGE: "eval_env-slurm-ci.sif"
   SINGULARITY_ARGS: "--nv"

@@ -5,6 +5,10 @@ on:
     paths:
       - 'apptainer/*.def'
       - '.github/workflows/build-and-push-apptainer.yml'
+  pull_request:
+    paths:
+      - 'apptainer/slurm-ci.def'
+      - '.github/workflows/build-and-push-apptainer.yml'
   workflow_dispatch:
     inputs:
       tag:
@@ -16,7 +20,7 @@ jobs:
   build-push:
     strategy:
       matrix:
-        image: [jureca, leonardo, lumi]
+        image: [slurm-ci, jureca, leonardo, lumi]
     name: Build & Publish SIF Artifact (${{ matrix.image }})
     runs-on:
       - runs-on=${{github.run_id}}/family=i7ie
