@@ -133,7 +133,7 @@ jobs:
 
       - name: Build test container
         run: |
-          sudo apptainer build eval_env-ci.sif tests/integration/ci.def
+          sudo apptainer --verbose build --mksquashfs-args="-comp gzip -Xcompression-level 1" eval_env-ci.sif tests/integration/ci.def
 
       - name: Set up test environment
         env:
