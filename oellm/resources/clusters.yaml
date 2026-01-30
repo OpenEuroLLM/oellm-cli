@@ -38,8 +38,8 @@ lumi:
 ci:
   hostname_pattern: "ip-*"
   EVAL_BASE_DIR: "/tmp/oellm-test"
-  PARTITION: "gpu"
+  PARTITION: "debug"
   ACCOUNT: "test"
   QUEUE_LIMIT: 10
   EVAL_CONTAINER_IMAGE: "eval_env-ci.sif"
-  SINGULARITY_ARGS: "--nv"
+  SINGULARITY_ARGS: ""
