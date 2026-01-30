@@ -39,7 +39,8 @@ jobs:
 
       - name: Configure MUNGE
         run: |
-          sudo create-munge-key --force
+          # Create munge key manually (create-munge-key not available on Ubuntu)
+          sudo dd if=/dev/urandom of=/etc/munge/munge.key bs=1 count=1024
           sudo chown munge:munge /etc/munge/munge.key
           sudo chmod 400 /etc/munge/munge.key
           sudo systemctl start munge
