@@ -52,7 +52,7 @@ def check_dataset_exists(spec: DatasetSpec) -> tuple[bool, str]:
         return False, f"Dataset repo '{spec.repo_id}' not found on HuggingFace"
 
     if spec.subset:
-        configs = get_dataset_config_names(spec.repo_id, trust_remote_code=True)
+        configs = get_dataset_config_names(spec.repo_id)
         if spec.subset not in configs:
             return (
                 False,
