@@ -11,15 +11,19 @@ on:
 
 jobs:
   slurm-integration:
-    name: SLURM + Apptainer Integration Test (CPU only)
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=i7ie
-    timeout-minutes: 30
+    name: SLURM + Apptainer Integration Test (GPU)
+    runs-on: runs-on=${{ github.run_id }}/family=g4dn.xlarge/image=ubuntu22-full-x64
+    timeout-minutes: 45
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Check GPU availability
+        run: |
+          echo "Checking for NVIDIA GPU..."
+          nvidia-smi
+          echo "GPU check passed"
 
       - name: Install system dependencies
         run: |
@@ -55,7 +59,7 @@ jobs:
           sudo mkdir -p /var/spool/slurmctld
           sudo mkdir -p /var/log/slurm
 
-          # Create slurm.conf (CPU-only, no GPU)
+          # Create slurm.conf with GPU support
           sudo tee /etc/slurm/slurm.conf > /dev/null << EOF
           ClusterName=ci
           SlurmctldHost=${HOSTNAME}
@@ -79,13 +83,22 @@ jobs:
           SlurmctldLogFile=/var/log/slurm/slurmctld.log
           SlurmdLogFile=/var/log/slurm/slurmd.log
 
-          # Node definition (CPU-only)
-          NodeName=${HOSTNAME} CPUs=4 RealMemory=16000 State=UNKNOWN
-          PartitionName=debug Nodes=${HOSTNAME} Default=YES MaxTime=INFINITE State=UP
+          # GRES (GPU) configuration
+          GresTypes=gpu
+
+          # Node definition with GPU
+          NodeName=${HOSTNAME} CPUs=4 Gres=gpu:1 RealMemory=16000 State=UNKNOWN
+          PartitionName=gpu Nodes=${HOSTNAME} Default=YES MaxTime=INFINITE State=UP
+          EOF
+
+          # Create gres.conf for GPU
+          sudo tee /etc/slurm/gres.conf > /dev/null << EOF
+          NodeName=${HOSTNAME} Name=gpu File=/dev/nvidia0
           EOF
 
           # Set permissions
           sudo chmod 644 /etc/slurm/slurm.conf
+          sudo chmod 644 /etc/slurm/gres.conf
 
       - name: Start SLURM services
         run: |
@@ -136,11 +149,11 @@ jobs:
           # Move container to expected location
           mv eval_env-ci.sif "$EVAL_BASE_DIR/"
 
-      - name: Run integration test (dry-run mode)
+      - name: Run integration test (full mode)
         env:
           EVAL_BASE_DIR: /tmp/oellm-test
         run: |
-          uv run python tests/integration/test_slurm.py --dry-run
+          uv run python tests/integration/test_slurm.py
 
       - name: Upload logs on failure
         if: failure()
