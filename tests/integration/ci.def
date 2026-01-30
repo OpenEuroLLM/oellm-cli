@@ -1,0 +1,28 @@
+Bootstrap: docker
+From: pytorch/pytorch:2.2.0-cuda12.1-cudnn8-runtime
+
+%labels
+    Author OpenEuroLLM
+    Description Minimal container for CI integration tests with lm_eval
+
+%post
+    apt-get update && apt-get install -y --no-install-recommends \
+        git \
+        && rm -rf /var/lib/apt/lists/*
+
+    pip install --no-cache-dir --upgrade pip
+    pip install --no-cache-dir \
+        lm_eval>=0.4.0 \
+        transformers>=4.40.0 \
+        accelerate \
+        datasets \
+        torch \
+        sentencepiece \
+        protobuf
+
+%environment
+    export LC_ALL=C
+    export HF_HUB_OFFLINE=1
+
+%runscript
+    exec python "$@"
