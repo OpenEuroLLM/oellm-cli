@@ -1,10 +1,13 @@
+import os
 import sys
 from importlib.resources import files
 
 import pytest
 import yaml
 from datasets import get_dataset_config_names
-from huggingface_hub import dataset_info
+from huggingface_hub import HfApi
+
+os.environ["HF_DATASETS_TRUST_REMOTE_CODE"] = "1"
 
 from oellm.task_groups import DatasetSpec, TaskGroup, _parse_task_groups
 
@@ -46,8 +49,9 @@ def collect_all_dataset_specs() -> list[DatasetSpec]:
 def check_dataset_exists(spec: DatasetSpec) -> tuple[bool, str]:
     """Check if a dataset exists on HuggingFace."""
     label = f"{spec.repo_id}" + (f"/{spec.subset}" if spec.subset else "")
+    api = HfApi()
 
-    info = dataset_info(spec.repo_id)
+    info = api.dataset_info(spec.repo_id)
     if info is None:
         return False, f"Dataset repo '{spec.repo_id}' not found on HuggingFace"
 
