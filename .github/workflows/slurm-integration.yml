@@ -133,7 +133,7 @@ jobs:
 
       - name: Build test container
         run: |
-          apptainer build --fakeroot eval_env-ci.sif tests/integration/ci.def
+          sudo apptainer build eval_env-ci.sif tests/integration/ci.def
 
       - name: Set up test environment
         env:
@@ -155,11 +155,17 @@ jobs:
         run: |
           uv run python tests/integration/test_slurm.py
 
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          mkdir -p /tmp/slurm-logs
+          sudo cp -r /var/log/slurm/* /tmp/slurm-logs/ 2>/dev/null || true
+          sudo chmod -R 755 /tmp/slurm-logs 2>/dev/null || true
+          cp -r /tmp/oellm-test/* /tmp/slurm-logs/ 2>/dev/null || true
+
       - name: Upload logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: slurm-logs
-          path: |
-            /var/log/slurm/
-            /tmp/oellm-test/
+          path: /tmp/slurm-logs/
