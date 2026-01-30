@@ -3,11 +3,11 @@ name = "oellm"
 version = "0.1.0"
 description = "OpenEuroLLM CLI"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "pandas",
     "jsonargparse",
-    "datasets",
+    "datasets<4.0.0",
     "rich",
     "huggingface_hub",
     "pyyaml",
