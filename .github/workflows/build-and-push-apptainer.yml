@@ -23,7 +23,7 @@ jobs:
         image: [slurm-ci, jureca, leonardo, lumi]
     name: Build & Publish SIF Artifact (${{ matrix.image }})
     runs-on:
-      - runs-on=${{github.run_id}}/family=i7ie/volume=80g
+      - runs-on=${{github.run_id}}/family=i7ie.large/volume=80g
     permissions:
       contents: read
 
