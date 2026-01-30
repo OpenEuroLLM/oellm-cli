@@ -159,9 +159,11 @@ jobs:
         if: failure()
         run: |
           mkdir -p /tmp/slurm-logs
+          # SLURM daemon logs
           sudo cp -r /var/log/slurm/* /tmp/slurm-logs/ 2>/dev/null || true
           sudo chmod -R 755 /tmp/slurm-logs 2>/dev/null || true
-          cp -r /tmp/oellm-test/* /tmp/slurm-logs/ 2>/dev/null || true
+          # Only copy the evaluation run directory (logs, scripts, results), not the container or cached data
+          cp -r /tmp/oellm-test/runner /tmp/slurm-logs/ 2>/dev/null || true
 
       - name: Upload logs on failure
         if: failure()
