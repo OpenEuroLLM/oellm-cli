@@ -86,8 +86,8 @@ jobs:
           # GRES (GPU) configuration
           GresTypes=gpu
 
-          # Node definition with GPU
-          NodeName=${HOSTNAME} CPUs=4 Gres=gpu:1 RealMemory=16000 State=UNKNOWN
+          # Node definition with GPU (use 15000 to account for system overhead on g4dn.xlarge)
+          NodeName=${HOSTNAME} CPUs=4 Gres=gpu:1 RealMemory=15000 State=UNKNOWN
           PartitionName=gpu Nodes=${HOSTNAME} Default=YES MaxTime=INFINITE State=UP
           EOF
 
@@ -133,7 +133,7 @@ jobs:
 
       - name: Build test container
         run: |
-          sudo apptainer --verbose build --mksquashfs-args="-comp gzip -Xcompression-level 1" eval_env-ci.sif tests/integration/ci.def
+          sudo apptainer --verbose build --mksquashfs-args="-comp lz4" eval_env-ci.sif tests/integration/ci.def
 
       - name: Set up test environment
         env:
