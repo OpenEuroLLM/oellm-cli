@@ -12,7 +12,7 @@ on:
 jobs:
   slurm-integration:
     name: SLURM + Apptainer Integration Test (GPU)
-    runs-on: "runs-on=${{ github.run_id }}/family=g4dn.xlarge/image=ubuntu24-gpu-x64/volume=125g"
+    runs-on: "runs-on=${{ github.run_id }}/family=g4dn.xlarge/image=ubuntu24-gpu-x64/disk=large"
     timeout-minutes: 45
 
     steps:
