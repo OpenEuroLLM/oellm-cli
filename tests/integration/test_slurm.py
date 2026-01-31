@@ -101,11 +101,24 @@ class TestScheduleEvalDryRun:
         os.environ["SINGULARITY_ARGS"] = ""
         os.environ["GPUS_PER_NODE"] = "0"
 
-        result = run_schedule_eval(all_task_groups, limit=5, dry_run=True)
+        result = run_schedule_eval(
+            all_task_groups, limit=5, dry_run=True, skip_checks=True
+        )
 
-        assert result.returncode == 0, f"schedule-eval failed: {result.stderr}"
+        assert (
+            result.returncode == 0
+        ), f"schedule-eval failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
 
         self.eval_dir = find_eval_dir(slurm_env)
+        if self.eval_dir is None:
+            user = os.environ.get("USER", "runner")
+            output_dir = slurm_env / user
+            print(f"DEBUG: Looking for eval dir in {output_dir}")
+            print(f"DEBUG: output_dir exists: {output_dir.exists()}")
+            if output_dir.exists():
+                print(f"DEBUG: contents: {list(output_dir.iterdir())}")
+            print(f"DEBUG: EVAL_OUTPUT_DIR={os.environ.get('EVAL_OUTPUT_DIR')}")
+            print(f"DEBUG: stdout: {result.stdout}")
         assert self.eval_dir is not None, f"Could not find eval dir under {slurm_env}"
 
         self.sbatch_path = self.eval_dir / "submit_evals.sbatch"
