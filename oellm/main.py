@@ -232,7 +232,7 @@ def schedule_evals(
         int(os.environ.get("QUEUE_LIMIT", 250)) - _num_jobs_in_queue()
     )
 
-    if remaining_queue_capacity <= 0:
+    if remaining_queue_capacity <= 0 and not dry_run:
         logging.warning("No remaining queue capacity. Not scheduling any jobs.")
         return None
 
