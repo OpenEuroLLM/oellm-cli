@@ -247,6 +247,17 @@ class TestFullEvaluationPipeline:
         assert eval_dir is not None, f"Could not find eval directory under {slurm_env}"
 
         results_dir = eval_dir / "results"
+        if not results_dir.exists():
+            print(f"\nDEBUG: eval_dir contents: {list(eval_dir.iterdir())}")
+            slurm_logs_dir = eval_dir / "slurm_logs"
+            if slurm_logs_dir.exists():
+                print(f"DEBUG: slurm_logs contents: {list(slurm_logs_dir.iterdir())}")
+                for log in slurm_logs_dir.glob("*.out"):
+                    print(f"\n--- {log.name} (stdout) ---")
+                    print(log.read_text()[-3000:])
+                for log in slurm_logs_dir.glob("*.err"):
+                    print(f"\n--- {log.name} (stderr) ---")
+                    print(log.read_text()[-3000:])
         assert results_dir.exists(), f"Results directory not found: {results_dir}"
 
         json_files = list(results_dir.glob("*.json"))
