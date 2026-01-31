@@ -190,17 +190,19 @@ def _collect_dataset_specs(group_names: Iterable[str]) -> list[DatasetSpec]:
     for _, group in parsed.items():
         if isinstance(group, TaskGroup):
             for t in group.tasks:
-                add_spec(t.dataset, t.subset)
-                if group.dataset == "facebook/flores" and not t.subset:
+                if t.dataset == "facebook/flores" and not t.subset:
                     for lang in _extract_flores_subsets(t.name):
-                        add_spec(group.dataset, lang)
+                        add_spec(t.dataset, lang)
+                else:
+                    add_spec(t.dataset, t.subset)
         else:
             for g in group.task_groups:
                 for t in g.tasks:
-                    add_spec(t.dataset, t.subset)
-                    if g.dataset == "facebook/flores" and not t.subset:
+                    if t.dataset == "facebook/flores" and not t.subset:
                         for lang in _extract_flores_subsets(t.name):
-                            add_spec(g.dataset, lang)
+                            add_spec(t.dataset, lang)
+                    else:
+                        add_spec(t.dataset, t.subset)
 
     return specs
 
