@@ -147,7 +147,7 @@ jobs:
         env:
           EVAL_BASE_DIR: /tmp/oellm-test
         run: |
-          uv run pytest tests/integration/ -v --tb=short
+          uv run pytest tests/integration/ -v --tb=short -x
 
       - name: Collect logs
         if: always()
