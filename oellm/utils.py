@@ -113,7 +113,7 @@ def _load_cluster_env() -> None:
 
     final_env = {**resolved_shared, **resolved_cluster}
     for k, v in final_env.items():
-        os.environ[k] = v
+        os.environ.setdefault(k, v)
 
 
 def _num_jobs_in_queue() -> int:
