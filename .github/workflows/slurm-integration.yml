@@ -130,7 +130,7 @@ jobs:
         run: uv python install 3.12
 
       - name: Install oellm with dev dependencies
-        run: uv sync --group dev
+        run: uv sync --extra dev
 
       - name: Set up test environment
         env:
