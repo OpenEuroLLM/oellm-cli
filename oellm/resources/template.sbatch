@@ -12,6 +12,7 @@
 CSV_PATH="{csv_path}"
 NUM_JOBS={num_jobs}
 TOTAL_EVALS={total_evals}
+LIMIT="{limit}"
 
 # avoiding crashes due to compute nodes not having access to the internet
 export HF_HOME=$HF_HOME
@@ -106,7 +107,8 @@ do
                     --tasks "$task_path" \
                     --num_fewshot "$n_shot" \
                     --output_path "{evals_dir}/$(openssl rand -hex 5).json" \
-                    --trust_remote_code
+                    --trust_remote_code \
+                    ${{LIMIT:+--limit $LIMIT}}
             ;;
         lighteval|light-eval)
             LIGHT_TASK="$task_path"
@@ -137,7 +139,8 @@ do
                     "model_name=$model_path,trust_remote_code=True" \
                     "$LIGHT_TASK_ARG" \
                     --custom-tasks lighteval.tasks.multilingual.tasks \
-                    --output-dir "$RESULTS_SUBDIR"
+                    --output-dir "$RESULTS_SUBDIR" \
+                    ${{LIMIT:+--max-samples $LIMIT}}
             ;;
         *)
             echo "[warning] Unknown evaluation suite '$eval_suite'. Skipping."
