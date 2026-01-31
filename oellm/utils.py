@@ -256,7 +256,7 @@ def _process_model_paths(models: Iterable[str]):
 def _pre_download_datasets_from_specs(
     specs: Iterable, trust_remote_code: bool = True
 ) -> None:
-    from datasets import load_dataset
+    from datasets import get_dataset_config_names, load_dataset
 
     specs_list = list(specs)
     if not specs_list:
@@ -272,11 +272,32 @@ def _pre_download_datasets_from_specs(
             label = f"{spec.repo_id}" + (f"/{spec.subset}" if spec.subset else "")
             status.update(f"Downloading '{label}' ({idx}/{len(specs_list)})")
 
-            load_dataset(
-                spec.repo_id,
-                name=spec.subset,
-                trust_remote_code=trust_remote_code,
-            )
+            try:
+                load_dataset(
+                    spec.repo_id,
+                    name=spec.subset,
+                    trust_remote_code=trust_remote_code,
+                )
+            except ValueError as e:
+                if "Config name is missing" in str(e) and spec.subset is None:
+                    configs = get_dataset_config_names(
+                        spec.repo_id, trust_remote_code=trust_remote_code
+                    )
+                    logging.info(
+                        f"Dataset '{spec.repo_id}' requires config. "
+                        f"Downloading all {len(configs)} configs."
+                    )
+                    for cfg in configs:
+                        status.update(
+                            f"Downloading '{spec.repo_id}/{cfg}' ({idx}/{len(specs_list)})"
+                        )
+                        load_dataset(
+                            spec.repo_id,
+                            name=cfg,
+                            trust_remote_code=trust_remote_code,
+                        )
+                    continue
+                raise
 
             logging.debug(f"Finished downloading dataset '{label}'.")
 
