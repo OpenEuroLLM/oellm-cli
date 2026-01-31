@@ -129,8 +129,8 @@ jobs:
       - name: Set up Python 3.12
         run: uv python install 3.12
 
-      - name: Install oellm
-        run: uv sync
+      - name: Install oellm with dev dependencies
+        run: uv sync --group dev
 
       - name: Set up test environment
         env:
@@ -143,11 +143,11 @@ jobs:
           mkdir -p "$HF_DATASETS_CACHE"
           mkdir -p "$EVAL_BASE_DIR/$USER"
 
-      - name: Run integration test (full mode)
+      - name: Run integration tests
         env:
           EVAL_BASE_DIR: /tmp/oellm-test
         run: |
-          uv run python tests/integration/test_slurm.py
+          uv run pytest tests/integration/ -v --tb=short
 
       - name: Collect logs
         if: always()

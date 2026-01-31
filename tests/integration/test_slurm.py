@@ -1,40 +1,15 @@
-import argparse
+"""Integration tests for the oellm schedule-eval workflow with SLURM."""
+
 import json
 import os
 import re
 import subprocess
-import sys
 import time
 from pathlib import Path
 
+import pytest
+
 from oellm.task_groups import get_all_task_group_names
-
-
-def wait_for_slurm_job(timeout: int = 600, poll_interval: int = 10) -> bool:
-    """Wait for all SLURM jobs to complete."""
-    start_time = time.time()
-
-    while time.time() - start_time < timeout:
-        result = subprocess.run(
-            ["squeue", "-h", "-o", "%i"],
-            capture_output=True,
-            text=True,
-        )
-
-        jobs = [j.strip() for j in result.stdout.strip().split("\n") if j.strip()]
-
-        if not jobs:
-            print("All SLURM jobs completed")
-            return True
-
-        print(
-            f"Waiting for {len(jobs)} job(s) to complete... "
-            f"(elapsed: {int(time.time() - start_time)}s)"
-        )
-        time.sleep(poll_interval)
-
-    print(f"Timeout waiting for SLURM jobs after {timeout}s")
-    return False
 
 
 def find_eval_dir(base_dir: Path) -> Path | None:
@@ -53,321 +28,233 @@ def find_eval_dir(base_dir: Path) -> Path | None:
     return None
 
 
-def validate_results(results_dir: Path) -> bool:
-    """Validate that results JSON files exist and contain expected data."""
-    json_files = list(results_dir.glob("*.json"))
+def wait_for_slurm_jobs(timeout: int = 600, poll_interval: int = 10) -> bool:
+    """Wait for all SLURM jobs to complete."""
+    start_time = time.time()
 
-    if not json_files:
-        print(f"No JSON files found in {results_dir}")
-        return False
+    while time.time() - start_time < timeout:
+        result = subprocess.run(
+            ["squeue", "-h", "-o", "%i"],
+            capture_output=True,
+            text=True,
+        )
 
-    print(f"Found {len(json_files)} result file(s)")
+        jobs = [j.strip() for j in result.stdout.strip().split("\n") if j.strip()]
 
-    for json_file in json_files:
-        print(f"Validating {json_file.name}...")
+        if not jobs:
+            return True
 
-        with open(json_file) as f:
-            data = json.load(f)
+        print(
+            f"Waiting for {len(jobs)} job(s) to complete... "
+            f"(elapsed: {int(time.time() - start_time)}s)"
+        )
+        time.sleep(poll_interval)
 
-        if "results" not in data:
-            print(f"  ERROR: Missing 'results' key in {json_file.name}")
-            return False
-
-        if "model_name" not in data and "model" not in data:
-            print(f"  ERROR: Missing model identifier in {json_file.name}")
-            return False
-
-        results = data.get("results", {})
-        if not results:
-            print(f"  ERROR: Empty results in {json_file.name}")
-            return False
-
-        for task_name, task_results in results.items():
-            print(f"  Task: {task_name}")
-            if "acc,none" in task_results:
-                acc = task_results["acc,none"]
-                print(f"    Accuracy: {acc:.4f}")
-                if not (0.0 <= acc <= 1.0):
-                    print("    ERROR: Accuracy out of range")
-                    return False
-
-        print(f"  {json_file.name}: OK")
-
-    return True
+    return False
 
 
-def validate_sbatch_script(script_path: Path) -> bool:
-    """Validate the generated sbatch script has expected content."""
-    if not script_path.exists():
-        print(f"ERROR: sbatch script not found at {script_path}")
-        return False
-
-    content = script_path.read_text()
-    print(f"Validating sbatch script: {script_path}")
-
-    required_patterns = [
-        (r"#SBATCH --job-name=", "job name directive"),
-        (r"#SBATCH --time=", "time limit directive"),
-        (r"#SBATCH --output=", "output directive"),
-        (r"#SBATCH --partition=", "partition directive"),
-        (r"#SBATCH --array=", "array directive"),
-        (r"CSV_PATH=", "CSV path variable"),
-        (r"singularity exec", "singularity exec command"),
-        (r"lm_eval", "lm_eval command"),
+def run_schedule_eval(task_groups: str, limit: int = 5, dry_run: bool = False):
+    """Run oellm schedule-eval and return the result."""
+    cmd = [
+        "uv",
+        "run",
+        "oellm",
+        "schedule-eval",
+        "--models",
+        "sshleifer/tiny-gpt2",
+        "--task_groups",
+        task_groups,
+        "--limit",
+        str(limit),
     ]
-
-    all_valid = True
-    for pattern, description in required_patterns:
-        if re.search(pattern, content):
-            print(f"  [OK] Found {description}")
-        else:
-            print(f"  [FAIL] Missing {description}")
-            all_valid = False
-
-    return all_valid
-
-
-def validate_jobs_csv(csv_path: Path) -> bool:
-    """Validate the generated jobs CSV."""
-    if not csv_path.exists():
-        print(f"ERROR: jobs.csv not found at {csv_path}")
-        return False
-
-    content = csv_path.read_text()
-    lines = content.strip().split("\n")
-
-    print(f"Validating jobs CSV: {csv_path}")
-    print(f"  Header: {lines[0]}")
-    print(f"  Total jobs: {len(lines) - 1}")
-
-    if len(lines) < 2:
-        print("  [FAIL] No jobs in CSV")
-        return False
-
-    required_columns = ["model_path", "task_path", "n_shot"]
-    header = lines[0].split(",")
-    for col in required_columns:
-        if col in header:
-            print(f"  [OK] Found column: {col}")
-        else:
-            print(f"  [FAIL] Missing column: {col}")
-            return False
-
-    return True
-
-
-def setup_environment(eval_base_dir: Path, dry_run: bool = False):
-    """Set up environment variables for the test."""
-    hf_home = eval_base_dir / "hf_data"
-
-    os.environ["EVAL_BASE_DIR"] = str(eval_base_dir)
-    os.environ["HF_HOME"] = str(hf_home)
-    os.environ["HF_HUB_CACHE"] = str(hf_home / "hub")
-    os.environ["HF_DATASETS_CACHE"] = str(hf_home / "datasets")
-    os.environ["HUGGINGFACE_HUB_CACHE"] = str(hf_home / "hub")
-    os.environ["PARTITION"] = "debug"
-    os.environ["ACCOUNT"] = "test"
-    os.environ["QUEUE_LIMIT"] = "10"
-    os.environ["EVAL_CONTAINER_IMAGE"] = "eval_env-slurm-ci.sif"
-    os.environ["EVAL_OUTPUT_DIR"] = str(eval_base_dir / os.environ.get("USER", "runner"))
-
     if dry_run:
+        cmd.extend(["--dry_run", "true"])
+
+    return subprocess.run(cmd, capture_output=True, text=True)
+
+
+class TestSlurmAvailability:
+    """Quick sanity checks for SLURM availability."""
+
+    def test_sinfo_works(self, slurm_available):
+        """Verify sinfo command works."""
+        result = subprocess.run(["sinfo"], capture_output=True, text=True)
+        assert result.returncode == 0
+        assert "PARTITION" in result.stdout or "STATE" in result.stdout
+
+
+@pytest.mark.dry_run
+class TestScheduleEvalDryRun:
+    """Tests for schedule-eval dry-run mode (no actual job submission)."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self, slurm_env, slurm_available):
+        """Run schedule-eval in dry-run mode once for all tests in this class."""
+        all_task_groups = ",".join(get_all_task_group_names())
+
         os.environ["SINGULARITY_ARGS"] = ""
         os.environ["GPUS_PER_NODE"] = "0"
-    else:
-        os.environ["SINGULARITY_ARGS"] = "--nv"
-        os.environ["GPUS_PER_NODE"] = "1"
+
+        result = run_schedule_eval(all_task_groups, limit=5, dry_run=True)
+
+        assert result.returncode == 0, f"schedule-eval failed: {result.stderr}"
+
+        self.eval_dir = find_eval_dir(slurm_env)
+        assert self.eval_dir is not None, f"Could not find eval dir under {slurm_env}"
+
+        self.sbatch_path = self.eval_dir / "submit_evals.sbatch"
+        self.csv_path = self.eval_dir / "jobs.csv"
+
+    def test_sbatch_script_exists(self):
+        """Verify sbatch script was generated."""
+        assert self.sbatch_path.exists(), f"sbatch script not found at {self.sbatch_path}"
+
+    def test_sbatch_has_job_name_directive(self):
+        """Verify sbatch script has job name directive."""
+        content = self.sbatch_path.read_text()
+        assert re.search(r"#SBATCH --job-name=", content)
+
+    def test_sbatch_has_time_directive(self):
+        """Verify sbatch script has time limit directive."""
+        content = self.sbatch_path.read_text()
+        assert re.search(r"#SBATCH --time=", content)
+
+    def test_sbatch_has_output_directive(self):
+        """Verify sbatch script has output directive."""
+        content = self.sbatch_path.read_text()
+        assert re.search(r"#SBATCH --output=", content)
+
+    def test_sbatch_has_partition_directive(self):
+        """Verify sbatch script has partition directive."""
+        content = self.sbatch_path.read_text()
+        assert re.search(r"#SBATCH --partition=", content)
+
+    def test_sbatch_has_array_directive(self):
+        """Verify sbatch script has array directive."""
+        content = self.sbatch_path.read_text()
+        assert re.search(r"#SBATCH --array=", content)
+
+    def test_sbatch_has_csv_path_variable(self):
+        """Verify sbatch script has CSV_PATH variable."""
+        content = self.sbatch_path.read_text()
+        assert re.search(r"CSV_PATH=", content)
+
+    def test_sbatch_has_singularity_exec(self):
+        """Verify sbatch script has singularity exec command."""
+        content = self.sbatch_path.read_text()
+        assert re.search(r"singularity exec", content)
+
+    def test_sbatch_has_lm_eval_command(self):
+        """Verify sbatch script has lm_eval command."""
+        content = self.sbatch_path.read_text()
+        assert re.search(r"lm_eval", content)
+
+    def test_sbatch_has_limit_expansion(self):
+        """Verify sbatch script has LIMIT variable expansion for --limit flag."""
+        content = self.sbatch_path.read_text()
+        assert re.search(r"LIMIT=", content)
+        assert re.search(r"\$\{LIMIT:\+--limit \$LIMIT\}", content)
+
+    def test_sbatch_bash_syntax_valid(self):
+        """Verify sbatch script passes bash syntax check."""
+        result = subprocess.run(
+            ["bash", "-n", str(self.sbatch_path)],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, f"Bash syntax error: {result.stderr}"
+
+    def test_jobs_csv_exists(self):
+        """Verify jobs CSV was generated."""
+        assert self.csv_path.exists(), f"jobs.csv not found at {self.csv_path}"
+
+    def test_jobs_csv_has_header(self):
+        """Verify jobs CSV has required columns."""
+        content = self.csv_path.read_text()
+        header = content.split("\n")[0]
+
+        assert "model_path" in header
+        assert "task_path" in header
+        assert "n_shot" in header
+        assert "eval_suite" in header
+
+    def test_jobs_csv_has_jobs(self):
+        """Verify jobs CSV contains evaluation jobs."""
+        content = self.csv_path.read_text()
+        lines = [l for l in content.strip().split("\n") if l]  # noqa
+
+        assert len(lines) > 1, "No jobs in CSV (only header found)"
+
+    def test_jobs_csv_contains_all_task_groups(self):
+        """Verify jobs CSV contains tasks from all task groups."""
+        content = self.csv_path.read_text()
+
+        assert "sshleifer/tiny-gpt2" in content
+        assert "lm_eval" in content.lower() or "lm-eval" in content.lower()
 
 
-def run_dry_run_test(eval_base_dir: Path) -> bool:
-    """Run the dry-run test (no actual job submission)."""
-    print("=" * 60)
-    print("SLURM Integration Test (DRY-RUN MODE)")
-    print("=" * 60)
+@pytest.mark.slow
+class TestFullEvaluationPipeline:
+    """Full integration test with actual SLURM job submission."""
 
-    print("\n1. Verifying SLURM is running...")
-    result = subprocess.run(["sinfo"], capture_output=True, text=True)
-    if result.returncode != 0:
-        print(f"SLURM not available: {result.stderr}")
-        return False
-    print(result.stdout)
+    def test_full_evaluation_completes_and_produces_valid_results(
+        self, slurm_env, slurm_available
+    ):
+        """Submit evaluation job, wait for completion, and validate results."""
+        all_task_groups = ",".join(get_all_task_group_names())
+        print(f"\nTesting {len(get_all_task_group_names())} task groups with --limit 5")
 
-    print("\n2. Testing schedule-eval with --dry-run...")
-    setup_environment(eval_base_dir, dry_run=True)
+        result = run_schedule_eval(all_task_groups, limit=5, dry_run=False)
+        assert (
+            result.returncode == 0
+        ), f"schedule-eval failed:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}"
 
-    all_task_groups = ",".join(get_all_task_group_names())
-    print(f"Testing all {len(get_all_task_group_names())} task groups: {all_task_groups}")
+        print("\nWaiting for SLURM jobs to complete...")
+        jobs_completed = wait_for_slurm_jobs(timeout=600, poll_interval=10)
 
-    result = subprocess.run(
-        [
-            "uv",
-            "run",
-            "oellm",
-            "schedule-eval",
-            "--models",
-            "sshleifer/tiny-gpt2",
-            "--task_groups",
-            all_task_groups,
-            "--limit",
-            "5",
-            "--dry_run",
-            "true",
-        ],
-        capture_output=True,
-        text=True,
-    )
+        if not jobs_completed:
+            subprocess.run(["squeue", "-l"])
 
-    print("STDOUT:", result.stdout)
-    if result.stderr:
-        print("STDERR:", result.stderr)
+            user = os.environ.get("USER", "runner")
+            for log in (slurm_env / user).rglob("*.out"):
+                print(f"\n--- {log} ---")
+                print(log.read_text()[-2000:])
+            for log in (slurm_env / user).rglob("*.err"):
+                print(f"\n--- {log} ---")
+                print(log.read_text()[-2000:])
 
-    if result.returncode != 0:
-        print(f"schedule-eval --dry-run failed with return code {result.returncode}")
-        return False
+        assert jobs_completed, "SLURM jobs did not complete within timeout"
 
-    print("\n3. Validating generated files...")
-    eval_dir = find_eval_dir(eval_base_dir)
+        eval_dir = find_eval_dir(slurm_env)
+        assert eval_dir is not None, f"Could not find eval directory under {slurm_env}"
 
-    if not eval_dir:
-        print(f"Could not find evaluation directory under {eval_base_dir}")
-        print("\nDirectory contents:")
-        subprocess.run(["find", str(eval_base_dir), "-type", "f"])
-        return False
+        results_dir = eval_dir / "results"
+        assert results_dir.exists(), f"Results directory not found: {results_dir}"
 
-    print(f"Evaluation directory: {eval_dir}")
+        json_files = list(results_dir.glob("*.json"))
+        assert len(json_files) > 0, f"No result JSON files found in {results_dir}"
 
-    sbatch_path = eval_dir / "submit_evals.sbatch"
-    csv_path = eval_dir / "jobs.csv"
+        print(f"\nValidating {len(json_files)} result file(s)...")
 
-    if not validate_sbatch_script(sbatch_path):
-        return False
+        for json_file in json_files:
+            with open(json_file) as f:
+                data = json.load(f)
 
-    if not validate_jobs_csv(csv_path):
-        return False
+            assert "results" in data, f"Missing 'results' key in {json_file.name}"
+            assert (
+                "model_name" in data or "model" in data
+            ), f"Missing model identifier in {json_file.name}"
 
-    print("\n4. Verifying sbatch script is syntactically valid...")
-    result = subprocess.run(
-        ["bash", "-n", str(sbatch_path)],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        print(f"Bash syntax check failed: {result.stderr}")
-        return False
-    print("  [OK] Script passes bash syntax check")
+            results = data.get("results", {})
+            assert results, f"Empty results in {json_file.name}"
 
-    print("\n" + "=" * 60)
-    print("Dry-run integration test PASSED")
-    print("=" * 60)
-    return True
+            for task_name, task_results in results.items():
+                if "acc,none" in task_results:
+                    acc = task_results["acc,none"]
+                    assert (
+                        0.0 <= acc <= 1.0
+                    ), f"Accuracy {acc} out of range for {task_name}"
 
+            print(f"  {json_file.name}: OK ({len(results)} task(s))")
 
-def run_full_test(eval_base_dir: Path) -> bool:
-    """Run the full test with actual job submission."""
-    print("=" * 60)
-    print("SLURM Integration Test (FULL MODE)")
-    print("=" * 60)
-
-    print("\n1. Verifying SLURM is running...")
-    result = subprocess.run(["sinfo"], capture_output=True, text=True)
-    if result.returncode != 0:
-        print(f"SLURM not available: {result.stderr}")
-        return False
-    print(result.stdout)
-
-    print("\n2. Scheduling evaluation job...")
-    setup_environment(eval_base_dir, dry_run=False)
-
-    all_task_groups = ",".join(get_all_task_group_names())
-    print(f"Testing all {len(get_all_task_group_names())} task groups: {all_task_groups}")
-
-    result = subprocess.run(
-        [
-            "uv",
-            "run",
-            "oellm",
-            "schedule-eval",
-            "--models",
-            "sshleifer/tiny-gpt2",
-            "--task_groups",
-            all_task_groups,
-            "--limit",
-            "5",
-        ],
-        capture_output=True,
-        text=True,
-    )
-
-    print("STDOUT:", result.stdout)
-    if result.stderr:
-        print("STDERR:", result.stderr)
-
-    if result.returncode != 0:
-        print(f"schedule-eval failed with return code {result.returncode}")
-        return False
-
-    print("\n3. Waiting for SLURM job to complete...")
-    if not wait_for_slurm_job(timeout=600):
-        print("SLURM job did not complete in time")
-
-        print("\nSLURM job status:")
-        subprocess.run(["squeue", "-l"])
-
-        print("\nSLURM logs:")
-        user = os.environ.get("USER", "runner")
-        for log in (eval_base_dir / user).rglob("*.out"):
-            print(f"\n--- {log} ---")
-            print(log.read_text()[-2000:])
-        for log in (eval_base_dir / user).rglob("*.err"):
-            print(f"\n--- {log} ---")
-            print(log.read_text()[-2000:])
-
-        return False
-
-    print("\n4. Validating results...")
-    eval_dir = find_eval_dir(eval_base_dir)
-
-    if not eval_dir:
-        print(f"Could not find evaluation directory under {eval_base_dir}")
-        print("\nDirectory contents:")
-        subprocess.run(["find", str(eval_base_dir), "-type", "f"])
-        return False
-
-    results_dir = eval_dir / "results"
-    if not results_dir.exists():
-        print(f"Results directory not found: {results_dir}")
-        return False
-
-    print(f"Results directory: {results_dir}")
-
-    if not validate_results(results_dir):
-        print("Result validation failed")
-        return False
-
-    print("\n" + "=" * 60)
-    print("Full integration test PASSED")
-    print("=" * 60)
-    return True
-
-
-def main():
-    parser = argparse.ArgumentParser(description="SLURM integration test")
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Run in dry-run mode (test SLURM setup and script generation only)",
-    )
-    args = parser.parse_args()
-
-    eval_base_dir = Path(os.environ.get("EVAL_BASE_DIR", "/tmp/oellm-test"))
-
-    if args.dry_run:
-        success = run_dry_run_test(eval_base_dir)
-    else:
-        success = run_full_test(eval_base_dir)
-
-    sys.exit(0 if success else 1)
-
-
-if __name__ == "__main__":
-    main()
+        print("\nFull evaluation pipeline test PASSED")

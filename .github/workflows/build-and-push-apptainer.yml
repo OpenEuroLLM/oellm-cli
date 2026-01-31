@@ -6,10 +6,6 @@ on:
     paths:
       - 'apptainer/*.def'
       - '.github/workflows/build-and-push-apptainer.yml'
-  pull_request:
-    paths:
-      - 'apptainer/slurm-ci.def'
-      - '.github/workflows/build-and-push-apptainer.yml'
   workflow_dispatch:
     inputs:
       tag:
