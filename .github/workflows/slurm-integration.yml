@@ -149,8 +149,8 @@ jobs:
         run: |
           uv run python tests/integration/test_slurm.py
 
-      - name: Collect logs on failure
-        if: failure()
+      - name: Collect logs
+        if: always()
         run: |
           mkdir -p /tmp/slurm-logs
           # SLURM daemon logs
@@ -159,9 +159,18 @@ jobs:
           # Only copy the evaluation run directory (logs, scripts, results), not the container or cached data
           cp -r /tmp/oellm-test/runner /tmp/slurm-logs/ 2>/dev/null || true
 
-      - name: Upload logs on failure
+      - name: Upload logs (on failure)
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: slurm-logs
           path: /tmp/slurm-logs/
+          retention-days: 30
+
+      - name: Upload logs (on success)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: slurm-logs
+          path: /tmp/slurm-logs/
+          retention-days: 7
