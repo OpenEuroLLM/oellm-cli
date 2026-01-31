@@ -1,12 +1,3 @@
-#!/usr/bin/env python3
-"""
-Integration test for the oellm schedule-eval workflow with SLURM.
-
-Modes:
-- Full mode (default): Submits a real job, waits for completion, validates results
-- Dry-run mode (--dry-run): Tests SLURM setup and script generation only (no GPU required)
-"""
-
 import argparse
 import json
 import os
@@ -15,6 +6,8 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+
+from oellm.task_groups import get_all_task_group_names
 
 
 def wait_for_slurm_job(timeout: int = 600, poll_interval: int = 10) -> bool:
@@ -175,7 +168,7 @@ def setup_environment(eval_base_dir: Path, dry_run: bool = False):
     os.environ["PARTITION"] = "debug"
     os.environ["ACCOUNT"] = "test"
     os.environ["QUEUE_LIMIT"] = "10"
-    os.environ["EVAL_CONTAINER_IMAGE"] = "eval_env-ci.sif"
+    os.environ["EVAL_CONTAINER_IMAGE"] = "eval_env-slurm-ci.sif"
     os.environ["EVAL_OUTPUT_DIR"] = str(eval_base_dir / os.environ.get("USER", "runner"))
 
     if dry_run:
@@ -202,6 +195,9 @@ def run_dry_run_test(eval_base_dir: Path) -> bool:
     print("\n2. Testing schedule-eval with --dry-run...")
     setup_environment(eval_base_dir, dry_run=True)
 
+    all_task_groups = ",".join(get_all_task_group_names())
+    print(f"Testing all {len(get_all_task_group_names())} task groups: {all_task_groups}")
+
     result = subprocess.run(
         [
             "uv",
@@ -210,10 +206,10 @@ def run_dry_run_test(eval_base_dir: Path) -> bool:
             "schedule-eval",
             "--models",
             "sshleifer/tiny-gpt2",
-            "--tasks",
-            "arc_easy",
-            "--n_shot",
-            "0",
+            "--task_groups",
+            all_task_groups,
+            "--limit",
+            "5",
             "--dry_run",
             "true",
         ],
@@ -282,6 +278,9 @@ def run_full_test(eval_base_dir: Path) -> bool:
     print("\n2. Scheduling evaluation job...")
     setup_environment(eval_base_dir, dry_run=False)
 
+    all_task_groups = ",".join(get_all_task_group_names())
+    print(f"Testing all {len(get_all_task_group_names())} task groups: {all_task_groups}")
+
     result = subprocess.run(
         [
             "uv",
@@ -290,10 +289,10 @@ def run_full_test(eval_base_dir: Path) -> bool:
             "schedule-eval",
             "--models",
             "sshleifer/tiny-gpt2",
-            "--tasks",
-            "arc_easy",
-            "--n_shot",
-            "0",
+            "--task_groups",
+            all_task_groups,
+            "--limit",
+            "5",
         ],
         capture_output=True,
         text=True,

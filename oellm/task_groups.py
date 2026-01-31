@@ -228,3 +228,11 @@ def _lookup_dataset_specs_for_tasks(task_names: Iterable[str]) -> list[DatasetSp
                 specs.append(spec)
 
     return specs
+
+
+def get_all_task_group_names() -> list[str]:
+    """Return all available task group names (excluding super_groups)."""
+    data = (
+        yaml.safe_load((files("oellm.resources") / "task-groups.yaml").read_text()) or {}
+    )
+    return list(data.get("task_groups", {}).keys())

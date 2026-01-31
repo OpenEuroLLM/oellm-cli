@@ -47,6 +47,7 @@ def schedule_evals(
     eval_csv_path: str | None = None,
     *,
     max_array_len: int = 128,
+    limit: int | None = None,
     verbose: bool = False,
     download_only: bool = False,
     dry_run: bool = False,
@@ -75,6 +76,8 @@ def schedule_evals(
             Warning: exclusive argument. Cannot specify `models`, `tasks`, `task_groups`, or `n_shot` when `eval_csv_path` is provided.
         max_array_len: The maximum number of jobs to schedule to run concurrently.
             Warning: this is not the number of jobs in the array job. This is determined by the environment variable `QUEUE_LIMIT`.
+        limit: If set, limit the number of samples per task (useful for quick testing).
+            Passes --limit to lm_eval and --max_samples to lighteval.
         download_only: If True, only download the datasets and models and exit.
         dry_run: If True, generate the SLURM script but don't submit it to the scheduler.
         skip_checks: If True, skip container image, model validation, and dataset pre-download checks for faster execution.
@@ -302,6 +305,7 @@ def schedule_evals(
         log_dir=evals_dir / "slurm_logs",
         evals_dir=str(evals_dir / "results"),
         time_limit=time_limit,  # Dynamic time limit
+        limit=limit if limit else "",  # Sample limit for quick testing
     )
 
     # substitute any $ENV_VAR occurrences
