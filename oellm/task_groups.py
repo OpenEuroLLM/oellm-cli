@@ -163,6 +163,16 @@ def _expand_task_groups(group_names: Iterable[str]) -> list[TaskGroupResult]:
     return results
 
 
+def _extract_flores_subsets(task_name: str) -> list[str]:
+    """Extract language subsets from flores-style task names like 'flores200:bul_Cyrl-eng_Latn'."""
+    if not task_name.startswith("flores200:"):
+        return []
+    lang_part = task_name.split(":", 1)[1]
+    if "-" in lang_part:
+        return lang_part.split("-")
+    return []
+
+
 def _collect_dataset_specs(group_names: Iterable[str]) -> list[DatasetSpec]:
     parsed = _parse_task_groups([str(n).strip() for n in group_names if str(n).strip()])
 
@@ -181,10 +191,16 @@ def _collect_dataset_specs(group_names: Iterable[str]) -> list[DatasetSpec]:
         if isinstance(group, TaskGroup):
             for t in group.tasks:
                 add_spec(t.dataset, t.subset)
+                if group.dataset == "facebook/flores" and not t.subset:
+                    for lang in _extract_flores_subsets(t.name):
+                        add_spec(group.dataset, lang)
         else:
             for g in group.task_groups:
                 for t in g.tasks:
                     add_spec(t.dataset, t.subset)
+                    if g.dataset == "facebook/flores" and not t.subset:
+                        for lang in _extract_flores_subsets(t.name):
+                            add_spec(g.dataset, lang)
 
     return specs
 

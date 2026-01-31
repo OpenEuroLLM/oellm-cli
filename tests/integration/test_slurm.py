@@ -53,7 +53,9 @@ def wait_for_slurm_jobs(timeout: int = 600, poll_interval: int = 10) -> bool:
     return False
 
 
-def run_schedule_eval(task_groups: str, limit: int = 5, dry_run: bool = False):
+def run_schedule_eval(
+    task_groups: str, limit: int = 5, dry_run: bool = False, skip_checks: bool = False
+):
     """Run oellm schedule-eval and return the result."""
     cmd = [
         "uv",
@@ -69,14 +71,17 @@ def run_schedule_eval(task_groups: str, limit: int = 5, dry_run: bool = False):
     ]
     if dry_run:
         cmd.extend(["--dry_run", "true"])
+    if skip_checks:
+        cmd.extend(["--skip_checks", "true"])
 
     return subprocess.run(cmd, capture_output=True, text=True)
 
 
+@pytest.mark.usefixtures("slurm_available")
 class TestSlurmAvailability:
     """Quick sanity checks for SLURM availability."""
 
-    def test_sinfo_works(self, slurm_available):
+    def test_sinfo_works(self):
         """Verify sinfo command works."""
         result = subprocess.run(["sinfo"], capture_output=True, text=True)
         assert result.returncode == 0
@@ -84,11 +89,12 @@ class TestSlurmAvailability:
 
 
 @pytest.mark.dry_run
+@pytest.mark.usefixtures("slurm_available")
 class TestScheduleEvalDryRun:
     """Tests for schedule-eval dry-run mode (no actual job submission)."""
 
     @pytest.fixture(autouse=True)
-    def setup(self, slurm_env, slurm_available):
+    def setup(self, slurm_env):
         """Run schedule-eval in dry-run mode once for all tests in this class."""
         all_task_groups = ",".join(get_all_task_group_names())
 
@@ -194,12 +200,11 @@ class TestScheduleEvalDryRun:
 
 
 @pytest.mark.slow
+@pytest.mark.usefixtures("slurm_available")
 class TestFullEvaluationPipeline:
     """Full integration test with actual SLURM job submission."""
 
-    def test_full_evaluation_completes_and_produces_valid_results(
-        self, slurm_env, slurm_available
-    ):
+    def test_full_evaluation_completes_and_produces_valid_results(self, slurm_env):
         """Submit evaluation job, wait for completion, and validate results."""
         all_task_groups = ",".join(get_all_task_group_names())
         print(f"\nTesting {len(get_all_task_group_names())} task groups with --limit 5")
