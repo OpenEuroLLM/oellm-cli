@@ -212,54 +212,49 @@ class TestScheduleEvalDryRun:
         assert "lm_eval" in content.lower() or "lm-eval" in content.lower()
 
 
+def _get_dataset_specs():
+    """Collect all dataset specs for parametrization."""
+    from oellm.task_groups import _collect_dataset_specs
+
+    specs = _collect_dataset_specs(get_all_task_group_names())
+    return [(spec.repo_id, spec.subset) for spec in specs]
+
+
+def _dataset_id(val):
+    """Generate readable test ID for dataset parameter."""
+    repo_id, subset = val
+    if subset:
+        return f"{repo_id.split('/')[-1]}/{subset}"
+    return repo_id.split("/")[-1]
+
+
 @pytest.mark.usefixtures("slurm_available")
 class TestDatasetDownloads:
-    """Test that all datasets for task groups can be downloaded."""
+    """Test that all datasets for task groups can be downloaded - one test per dataset."""
 
-    def test_all_datasets_download_successfully(self, slurm_env):
-        """Download all datasets required by task groups and verify offline access."""
+    @pytest.mark.parametrize("dataset_spec", _get_dataset_specs(), ids=_dataset_id)
+    def test_dataset_downloads_and_loads_offline(self, slurm_env, dataset_spec):
+        """Download a single dataset and verify it can be loaded offline."""
         from datasets import load_dataset
 
-        from oellm.task_groups import _collect_dataset_specs
-        from oellm.utils import _pre_download_datasets_from_specs
+        repo_id, subset = dataset_spec
+        label = f"{repo_id}" + (f"/{subset}" if subset else "")
+        print(f"\nDownloading dataset: {label}")
 
-        all_task_groups = get_all_task_group_names()
-        print(f"\nCollecting dataset specs for {len(all_task_groups)} task groups...")
-
-        specs = _collect_dataset_specs(all_task_groups)
-        print(f"Found {len(specs)} dataset specs to download")
-
-        for spec in specs:
-            label = f"{spec.repo_id}" + (f"/{spec.subset}" if spec.subset else "")
-            print(f"  - {label}")
-
-        print("\nDownloading datasets...")
-        _pre_download_datasets_from_specs(specs, trust_remote_code=True)
-        print("Downloads complete. Verifying offline access...")
+        load_dataset(repo_id, name=subset, trust_remote_code=True)
+        print("Download complete. Verifying offline access...")
 
         old_offline = os.environ.get("HF_HUB_OFFLINE")
         os.environ["HF_HUB_OFFLINE"] = "1"
 
-        failed = []
-        for spec in specs:
-            label = f"{spec.repo_id}" + (f"/{spec.subset}" if spec.subset else "")
-            try:
-                load_dataset(spec.repo_id, name=spec.subset, trust_remote_code=True)
-            except Exception as e:
-                failed.append((label, str(e)))
-
-        if old_offline is None:
-            os.environ.pop("HF_HUB_OFFLINE", None)
-        else:
-            os.environ["HF_HUB_OFFLINE"] = old_offline
-
-        if failed:
-            msg = "The following datasets failed offline loading:\n"
-            for label, err in failed:
-                msg += f"  - {label}: {err}\n"
-            pytest.fail(msg)
-
-        print(f"All {len(specs)} datasets verified for offline access!")
+        try:
+            load_dataset(repo_id, name=subset, trust_remote_code=True)
+            print(f"Dataset {label}: OK (offline access verified)")
+        finally:
+            if old_offline is None:
+                os.environ.pop("HF_HUB_OFFLINE", None)
+            else:
+                os.environ["HF_HUB_OFFLINE"] = old_offline
 
 
 @pytest.mark.slow
