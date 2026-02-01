@@ -1,5 +1,3 @@
-"""Integration tests for the oellm schedule-eval workflow with SLURM."""
-
 import csv
 import json
 import os
