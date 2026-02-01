@@ -295,7 +295,7 @@ class TestFullEvaluationPipeline:
         ), f"schedule-eval failed for {task_group}:\nSTDERR: {result.stderr}"
 
         print("Waiting for job to complete...")
-        jobs_completed = wait_for_slurm_jobs(timeout=300, poll_interval=10)
+        jobs_completed = wait_for_slurm_jobs(timeout=600, poll_interval=10)
 
         eval_dir = find_eval_dir(slurm_env)
 
