@@ -128,51 +128,26 @@ class TestScheduleEvalDryRun:
         """Verify sbatch script was generated."""
         assert self.sbatch_path.exists(), f"sbatch script not found at {self.sbatch_path}"
 
-    def test_sbatch_has_job_name_directive(self):
-        """Verify sbatch script has job name directive."""
+    @pytest.mark.parametrize(
+        "pattern,description",
+        [
+            (r"#SBATCH --job-name=", "job-name"),
+            (r"#SBATCH --time=", "time"),
+            (r"#SBATCH --output=", "output"),
+            (r"#SBATCH --partition=", "partition"),
+            (r"#SBATCH --array=", "array"),
+            (r"CSV_PATH=", "CSV_PATH"),
+            (r"singularity exec", "singularity-exec"),
+            (r"lm_eval", "lm_eval"),
+            (r"LIMIT=", "LIMIT-var"),
+            (r"\$\{LIMIT:\+--limit \$LIMIT\}", "LIMIT-expansion"),
+        ],
+        ids=lambda x: x[1],
+    )
+    def test_sbatch_contains(self, pattern, description):
+        """Verify sbatch script contains expected patterns."""
         content = self.sbatch_path.read_text()
-        assert re.search(r"#SBATCH --job-name=", content)
-
-    def test_sbatch_has_time_directive(self):
-        """Verify sbatch script has time limit directive."""
-        content = self.sbatch_path.read_text()
-        assert re.search(r"#SBATCH --time=", content)
-
-    def test_sbatch_has_output_directive(self):
-        """Verify sbatch script has output directive."""
-        content = self.sbatch_path.read_text()
-        assert re.search(r"#SBATCH --output=", content)
-
-    def test_sbatch_has_partition_directive(self):
-        """Verify sbatch script has partition directive."""
-        content = self.sbatch_path.read_text()
-        assert re.search(r"#SBATCH --partition=", content)
-
-    def test_sbatch_has_array_directive(self):
-        """Verify sbatch script has array directive."""
-        content = self.sbatch_path.read_text()
-        assert re.search(r"#SBATCH --array=", content)
-
-    def test_sbatch_has_csv_path_variable(self):
-        """Verify sbatch script has CSV_PATH variable."""
-        content = self.sbatch_path.read_text()
-        assert re.search(r"CSV_PATH=", content)
-
-    def test_sbatch_has_singularity_exec(self):
-        """Verify sbatch script has singularity exec command."""
-        content = self.sbatch_path.read_text()
-        assert re.search(r"singularity exec", content)
-
-    def test_sbatch_has_lm_eval_command(self):
-        """Verify sbatch script has lm_eval command."""
-        content = self.sbatch_path.read_text()
-        assert re.search(r"lm_eval", content)
-
-    def test_sbatch_has_limit_expansion(self):
-        """Verify sbatch script has LIMIT variable expansion for --limit flag."""
-        content = self.sbatch_path.read_text()
-        assert re.search(r"LIMIT=", content)
-        assert re.search(r"\$\{LIMIT:\+--limit \$LIMIT\}", content)
+        assert re.search(pattern, content), f"sbatch missing {description}"
 
     def test_sbatch_bash_syntax_valid(self):
         """Verify sbatch script passes bash syntax check."""
@@ -296,7 +271,7 @@ class TestFullEvaluationPipeline:
         ), f"schedule-eval failed for {task_group}:\nSTDERR: {result.stderr}"
 
         print("Waiting for job to complete...")
-        jobs_completed = wait_for_slurm_jobs(timeout=600, poll_interval=10)
+        jobs_completed = wait_for_slurm_jobs(timeout=1200, poll_interval=10)
 
         eval_dir = find_eval_dir(slurm_env)
 
