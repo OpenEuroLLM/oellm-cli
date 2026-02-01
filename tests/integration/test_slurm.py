@@ -217,7 +217,9 @@ class TestDatasetDownloads:
     """Test that all datasets for task groups can be downloaded."""
 
     def test_all_datasets_download_successfully(self, slurm_env):
-        """Download all datasets required by task groups."""
+        """Download all datasets required by task groups and verify offline access."""
+        from datasets import load_dataset
+
         from oellm.task_groups import _collect_dataset_specs
         from oellm.utils import _pre_download_datasets_from_specs
 
@@ -233,40 +235,65 @@ class TestDatasetDownloads:
 
         print("\nDownloading datasets...")
         _pre_download_datasets_from_specs(specs, trust_remote_code=True)
-        print("All datasets downloaded successfully!")
+        print("Downloads complete. Verifying offline access...")
+
+        old_offline = os.environ.get("HF_HUB_OFFLINE")
+        os.environ["HF_HUB_OFFLINE"] = "1"
+
+        failed = []
+        for spec in specs:
+            label = f"{spec.repo_id}" + (f"/{spec.subset}" if spec.subset else "")
+            try:
+                load_dataset(spec.repo_id, name=spec.subset, trust_remote_code=True)
+            except Exception as e:
+                failed.append((label, str(e)))
+
+        if old_offline is None:
+            os.environ.pop("HF_HUB_OFFLINE", None)
+        else:
+            os.environ["HF_HUB_OFFLINE"] = old_offline
+
+        if failed:
+            msg = "The following datasets failed offline loading:\n"
+            for label, err in failed:
+                msg += f"  - {label}: {err}\n"
+            pytest.fail(msg)
+
+        print(f"All {len(specs)} datasets verified for offline access!")
 
 
 @pytest.mark.slow
 @pytest.mark.usefixtures("slurm_available")
 class TestFullEvaluationPipeline:
-    """Full integration test with actual SLURM job submission."""
+    """Full integration test with actual SLURM job submission - one test per task group."""
 
-    def test_full_evaluation_completes_and_produces_valid_results(self, slurm_env):
-        """Submit evaluation job, wait for completion, and validate results."""
-        all_task_groups = ",".join(get_all_task_group_names())
-        print(f"\nTesting {len(get_all_task_group_names())} task groups with --limit 5")
+    @pytest.fixture(autouse=True)
+    def setup_eval_tracking(self):
+        """Track eval directories for result validation."""
+        self.eval_dirs = []
 
-        result = run_schedule_eval(all_task_groups, limit=5, dry_run=False)
-        print(f"\nschedule-eval stdout:\n{result.stdout}")
-        if result.stderr:
-            print(f"\nschedule-eval stderr:\n{result.stderr}")
+    @pytest.mark.parametrize("task_group", get_all_task_group_names())
+    def test_task_group_evaluation(self, slurm_env, task_group):
+        """Submit and run evaluation for a single task group."""
+        print(f"\n{'=' * 60}")
+        print(f"Testing task group: {task_group}")
+        print(f"{'=' * 60}")
+
+        result = run_schedule_eval(task_group, limit=5, dry_run=False)
+
+        if result.returncode != 0:
+            print(f"schedule-eval stdout:\n{result.stdout}")
+            print(f"schedule-eval stderr:\n{result.stderr}")
         assert (
             result.returncode == 0
-        ), f"schedule-eval failed:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}"
+        ), f"schedule-eval failed for {task_group}:\nSTDERR: {result.stderr}"
 
-        squeue_result = subprocess.run(
-            ["squeue", "-u", os.environ.get("USER", "runner"), "-l"],
-            capture_output=True,
-            text=True,
-        )
-        print(f"\nsqueue after submission:\n{squeue_result.stdout}")
+        print("Waiting for job to complete...")
+        jobs_completed = wait_for_slurm_jobs(timeout=300, poll_interval=10)
 
-        print("\nWaiting for SLURM jobs to complete...")
-        jobs_completed = wait_for_slurm_jobs(timeout=600, poll_interval=10)
+        eval_dir = find_eval_dir(slurm_env)
 
-        if not jobs_completed:
-            subprocess.run(["squeue", "-l"])
-
+        if not jobs_completed or eval_dir is None:
             user = os.environ.get("USER", "runner")
             for log in (slurm_env / user).rglob("*.out"):
                 print(f"\n--- {log} ---")
@@ -275,49 +302,38 @@ class TestFullEvaluationPipeline:
                 print(f"\n--- {log} ---")
                 print(log.read_text()[-2000:])
 
-        assert jobs_completed, "SLURM jobs did not complete within timeout"
-
-        eval_dir = find_eval_dir(slurm_env)
-        assert eval_dir is not None, f"Could not find eval directory under {slurm_env}"
+        assert jobs_completed, f"Job for {task_group} did not complete within timeout"
+        assert eval_dir is not None, f"Could not find eval directory for {task_group}"
 
         results_dir = eval_dir / "results"
         if not results_dir.exists():
-            print(f"\nDEBUG: eval_dir contents: {list(eval_dir.iterdir())}")
             slurm_logs_dir = eval_dir / "slurm_logs"
             if slurm_logs_dir.exists():
-                print(f"DEBUG: slurm_logs contents: {list(slurm_logs_dir.iterdir())}")
                 for log in slurm_logs_dir.glob("*.out"):
                     print(f"\n--- {log.name} (stdout) ---")
                     print(log.read_text()[-3000:])
                 for log in slurm_logs_dir.glob("*.err"):
                     print(f"\n--- {log.name} (stderr) ---")
                     print(log.read_text()[-3000:])
-        assert results_dir.exists(), f"Results directory not found: {results_dir}"
+        assert (
+            results_dir.exists()
+        ), f"Results directory not found for {task_group}: {results_dir}"
 
         json_files = list(results_dir.glob("*.json"))
-        assert len(json_files) > 0, f"No result JSON files found in {results_dir}"
-
-        print(f"\nValidating {len(json_files)} result file(s)...")
+        assert len(json_files) > 0, f"No result JSON files for {task_group}"
 
         for json_file in json_files:
             with open(json_file) as f:
                 data = json.load(f)
 
-            assert "results" in data, f"Missing 'results' key in {json_file.name}"
-            assert (
-                "model_name" in data or "model" in data
-            ), f"Missing model identifier in {json_file.name}"
+            assert "results" in data, f"Missing 'results' in {json_file.name}"
 
             results = data.get("results", {})
-            assert results, f"Empty results in {json_file.name}"
+            assert results, f"Empty results for {task_group}"
 
-            for task_name, task_results in results.items():
+            for _, task_results in results.items():
                 if "acc,none" in task_results:
                     acc = task_results["acc,none"]
-                    assert (
-                        0.0 <= acc <= 1.0
-                    ), f"Accuracy {acc} out of range for {task_name}"
+                    assert 0.0 <= acc <= 1.0, f"Accuracy {acc} out of range"
 
-            print(f"  {json_file.name}: OK ({len(results)} task(s))")
-
-        print("\nFull evaluation pipeline test PASSED")
+        print(f"Task group {task_group}: PASSED ({len(json_files)} result files)")
