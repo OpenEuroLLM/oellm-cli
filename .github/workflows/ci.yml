@@ -29,9 +29,9 @@ jobs:
       run: |
         uvx ruff check .
 
-    - name: Type check with mypy
+    - name: Type check with ty
       run: |
-        uvx mypy . --ignore-missing-imports || true
+        uvx ty check .
       continue-on-error: true
 
   yaml-lint:

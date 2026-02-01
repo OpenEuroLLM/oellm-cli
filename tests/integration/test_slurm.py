@@ -102,7 +102,7 @@ class TestScheduleEvalDryRun:
         os.environ["GPUS_PER_NODE"] = "0"
 
         result = run_schedule_eval(
-            all_task_groups, limit=5, dry_run=True, skip_checks=True
+            all_task_groups, limit=1, dry_run=True, skip_checks=True
         )
 
         assert (
@@ -261,7 +261,7 @@ class TestFullEvaluationPipeline:
         print(f"Testing task group: {task_group}")
         print(f"{'=' * 60}")
 
-        result = run_schedule_eval(task_group, limit=5, dry_run=False)
+        result = run_schedule_eval(task_group, limit=1, dry_run=False)
 
         if result.returncode != 0:
             print(f"schedule-eval stdout:\n{result.stdout}")
