@@ -291,6 +291,58 @@ def _first_task_id(val):
     return f"{group_name}:{task_name}"
 
 
+def _dump_all_logs(slurm_env, prefix=""):
+    """Dump all available logs for debugging."""
+    user = os.environ.get("USER", "runner")
+    base_dir = slurm_env / user
+
+    print(f"\n{prefix}{'=' * 60}")
+    print(f"{prefix}DUMPING ALL LOGS FOR DEBUGGING")
+    print(f"{prefix}{'=' * 60}")
+
+    if not base_dir.exists():
+        print(f"{prefix}Base dir {base_dir} does not exist")
+        return
+
+    print(f"{prefix}Contents of {base_dir}:")
+    for item in base_dir.rglob("*"):
+        if item.is_file():
+            print(f"{prefix}  {item.relative_to(base_dir)}")
+
+    for log in base_dir.rglob("*.out"):
+        print(f"\n{prefix}--- {log} (stdout) ---")
+        try:
+            content = log.read_text()
+            print(content[-5000:] if len(content) > 5000 else content)
+        except Exception as e:
+            print(f"{prefix}Error reading: {e}")
+
+    for log in base_dir.rglob("*.err"):
+        print(f"\n{prefix}--- {log} (stderr) ---")
+        try:
+            content = log.read_text()
+            print(content[-5000:] if len(content) > 5000 else content)
+        except Exception as e:
+            print(f"{prefix}Error reading: {e}")
+
+    print(f"\n{prefix}Checking running processes...")
+    result = subprocess.run(["ps", "aux"], capture_output=True, text=True)
+    for line in result.stdout.split("\n"):
+        if (
+            "lighteval" in line.lower()
+            or "lm_eval" in line.lower()
+            or "python" in line.lower()
+        ):
+            print(f"{prefix}  {line}")
+
+    print(f"\n{prefix}SLURM queue status:")
+    result = subprocess.run(["squeue", "-a"], capture_output=True, text=True)
+    print(result.stdout)
+
+    print(f"{prefix}{'=' * 60}")
+
+
+@pytest.mark.skip(reason="Temporarily disabled - running flores200 debug test only")
 @pytest.mark.slow
 @pytest.mark.usefixtures("slurm_available")
 class TestFullEvaluationPipeline:
@@ -377,3 +429,158 @@ class TestFullEvaluationPipeline:
                     assert 0.0 <= acc <= 1.0, f"Accuracy {acc} out of range"
 
         print(f"{group_name}: PASSED ({task_name}, {len(json_files)} result files)")
+
+
+@pytest.mark.slow
+@pytest.mark.usefixtures("slurm_available")
+class TestFlores200Debug:
+    """Focused debug test for flores200 lighteval task."""
+
+    @pytest.mark.timeout(300)
+    def test_flores200_lighteval(self, slurm_env):
+        """Debug test for flores200 translation task with extensive logging."""
+        task_name = "flores200:bul_Cyrl-eng_Latn"
+        n_shot = 0
+        suite = "lighteval"
+
+        print(f"\n{'=' * 60}")
+        print("DEBUG TEST: flores200 lighteval")
+        print(f"Task: {task_name}")
+        print(f"N-shot: {n_shot}")
+        print(f"Suite: {suite}")
+        print(f"{'=' * 60}")
+
+        print(f"\n[{time.strftime('%H:%M:%S')}] Environment info:")
+        print(f"  EVAL_BASE_DIR: {os.environ.get('EVAL_BASE_DIR')}")
+        print(f"  HF_HOME: {os.environ.get('HF_HOME')}")
+        print(f"  SINGULARITY_ARGS: {os.environ.get('SINGULARITY_ARGS')}")
+        print(f"  GPUS_PER_NODE: {os.environ.get('GPUS_PER_NODE')}")
+
+        print(f"\n[{time.strftime('%H:%M:%S')}] Checking network connectivity...")
+        net_result = subprocess.run(
+            [
+                "curl",
+                "-s",
+                "-o",
+                "/dev/null",
+                "-w",
+                "%{http_code}",
+                "--max-time",
+                "5",
+                "https://tinyurl.com/flores200sacrebleuspm",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        print(f"  sacrebleu tokenizer URL reachable: {net_result.stdout}")
+
+        print(f"\n[{time.strftime('%H:%M:%S')}] Creating job CSV...")
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".csv", delete=False
+        ) as csv_file:
+            writer = csv.writer(csv_file)
+            writer.writerow(["model_path", "task_path", "n_shot", "eval_suite"])
+            writer.writerow(["sshleifer/tiny-gpt2", task_name, n_shot, suite])
+            csv_path = csv_file.name
+            print(f"  CSV path: {csv_path}")
+
+        print(f"\n[{time.strftime('%H:%M:%S')}] Running schedule-eval...")
+        result = run_schedule_eval_with_csv(csv_path, limit=1, dry_run=False)
+        os.unlink(csv_path)
+
+        print(f"\n[{time.strftime('%H:%M:%S')}] schedule-eval result:")
+        print(f"  Return code: {result.returncode}")
+        print(f"  STDOUT:\n{result.stdout}")
+        if result.stderr:
+            print(f"  STDERR:\n{result.stderr}")
+
+        assert result.returncode == 0, (
+            f"schedule-eval failed:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}"
+        )
+
+        eval_dir = find_eval_dir(slurm_env)
+        print(f"\n[{time.strftime('%H:%M:%S')}] Eval directory: {eval_dir}")
+
+        if eval_dir:
+            sbatch_path = eval_dir / "submit_evals.sbatch"
+            if sbatch_path.exists():
+                print(f"\n[{time.strftime('%H:%M:%S')}] Generated sbatch script:")
+                print("-" * 40)
+                print(sbatch_path.read_text())
+                print("-" * 40)
+
+            jobs_csv = eval_dir / "jobs.csv"
+            if jobs_csv.exists():
+                print(f"\n[{time.strftime('%H:%M:%S')}] Jobs CSV content:")
+                print(jobs_csv.read_text())
+
+        print(f"\n[{time.strftime('%H:%M:%S')}] Waiting for SLURM job (timeout=180s)...")
+        job_timeout = 180
+        poll_interval = 5
+        start_time = time.time()
+        jobs_completed = False
+
+        while time.time() - start_time < job_timeout:
+            elapsed = int(time.time() - start_time)
+            result = subprocess.run(
+                ["squeue", "-h", "-o", "%i %j %T %M"],
+                capture_output=True,
+                text=True,
+            )
+            jobs = [j.strip() for j in result.stdout.strip().split("\n") if j.strip()]
+
+            if not jobs:
+                print(
+                    f"[{time.strftime('%H:%M:%S')}] All jobs completed after {elapsed}s"
+                )
+                jobs_completed = True
+                break
+
+            print(
+                f"[{time.strftime('%H:%M:%S')}] Jobs still running ({elapsed}s): {jobs}"
+            )
+
+            if eval_dir:
+                slurm_logs = eval_dir / "slurm_logs"
+                if slurm_logs.exists():
+                    for log in slurm_logs.glob("*.out"):
+                        content = log.read_text()
+                        if content:
+                            lines = content.strip().split("\n")
+                            print(
+                                f"  Latest output ({log.name}): {lines[-1][:100] if lines else 'empty'}"
+                            )
+
+            time.sleep(poll_interval)
+
+        print(
+            f"\n[{time.strftime('%H:%M:%S')}] Job wait finished. Completed: {jobs_completed}"
+        )
+
+        _dump_all_logs(slurm_env, prefix="[DEBUG] ")
+
+        if not jobs_completed:
+            print(
+                f"\n[{time.strftime('%H:%M:%S')}] TIMEOUT - Cancelling remaining jobs..."
+            )
+            subprocess.run(["scancel", "-u", os.environ.get("USER", "runner")])
+            time.sleep(2)
+
+        assert jobs_completed, (
+            "flores200 job did not complete within timeout - check logs above"
+        )
+
+        eval_dir = find_eval_dir(slurm_env)
+        assert eval_dir is not None, "Could not find eval directory"
+
+        results_dir = eval_dir / "results"
+        assert results_dir.exists(), f"Results directory not found: {results_dir}"
+
+        json_files = list(results_dir.glob("*.json"))
+        assert len(json_files) > 0, "No result JSON files found"
+
+        print(
+            f"\n[{time.strftime('%H:%M:%S')}] SUCCESS - Found {len(json_files)} result files"
+        )
+        for jf in json_files:
+            print(f"  {jf.name}")

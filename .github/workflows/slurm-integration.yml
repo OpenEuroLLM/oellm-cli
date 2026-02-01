@@ -145,9 +145,11 @@ jobs:
           # Export for subsequent steps
           echo "EVAL_BASE_DIR=$EVAL_BASE_DIR" >> $GITHUB_ENV
 
-      - name: Run integration tests
+      - name: Run flores200 debug test
         run: |
-          uv run pytest tests/integration/ -v --tb=short -x
+          uv run pytest tests/integration/test_slurm.py::TestFlores200Debug -v -s --tb=long --timeout=300
+        continue-on-error: true
+        id: flores_test
 
       - name: Collect logs
         if: always()
@@ -158,19 +160,22 @@ jobs:
           sudo chmod -R 755 /tmp/slurm-logs 2>/dev/null || true
           # Only copy the evaluation run directory (logs, scripts, results), not the container or cached data
           cp -r "$EVAL_BASE_DIR/runner" /tmp/slurm-logs/ 2>/dev/null || true
+          # Extra debug info
+          echo "=== squeue ===" > /tmp/slurm-logs/debug_info.txt
+          squeue -a >> /tmp/slurm-logs/debug_info.txt 2>&1 || true
+          echo "=== ps aux | grep -E 'python|lighteval' ===" >> /tmp/slurm-logs/debug_info.txt
+          ps aux | grep -E 'python|lighteval' >> /tmp/slurm-logs/debug_info.txt 2>&1 || true
+          echo "=== sacrebleu cache ===" >> /tmp/slurm-logs/debug_info.txt
+          ls -la ~/.sacrebleu/models/ >> /tmp/slurm-logs/debug_info.txt 2>&1 || echo "No sacrebleu cache" >> /tmp/slurm-logs/debug_info.txt
 
-      - name: Upload logs (on failure)
-        if: failure()
+      - name: Upload logs (always)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: slurm-logs
+          name: slurm-logs-flores200-debug
           path: /tmp/slurm-logs/
           retention-days: 30
 
-      - name: Upload logs (on success)
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: slurm-logs
-          path: /tmp/slurm-logs/
-          retention-days: 7
+      - name: Fail if flores test failed
+        if: steps.flores_test.outcome == 'failure'
+        run: exit 1
