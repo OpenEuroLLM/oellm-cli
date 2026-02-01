@@ -13,7 +13,7 @@ on:
 jobs:
   slurm-integration:
     name: SLURM + Apptainer Integration Test (GPU)
-    runs-on: "runs-on=${{ github.run_id }}/family=g4dn.xlarge/image=ubuntu24-gpu-x64/volume=125g/spot=false/retry=false"
+    runs-on: "runs-on=${{ github.run_id }}/family=g6f.xlarge/image=ubuntu24-gpu-x64/spot=false"
     timeout-minutes: 45
 
     steps:
@@ -25,6 +25,8 @@ jobs:
           echo "Checking for NVIDIA GPU..."
           nvidia-smi
           echo "GPU check passed"
+          echo "Disk info:"
+          df -h
 
       - name: Install system dependencies
         run: |
@@ -133,19 +135,17 @@ jobs:
         run: uv sync --extra dev
 
       - name: Set up test environment
-        env:
-          EVAL_BASE_DIR: /tmp/oellm-test
-          HF_HOME: /tmp/oellm-test/hf_data
-          HF_DATASETS_CACHE: /tmp/oellm-test/hf_data/datasets
         run: |
+          # Use a directory next to the workspace (which runs-on puts on NVMe for instance-storage types)
+          EVAL_BASE_DIR="${GITHUB_WORKSPACE}/../oellm-test"
           mkdir -p "$EVAL_BASE_DIR"
-          mkdir -p "$HF_HOME/hub"
-          mkdir -p "$HF_DATASETS_CACHE"
+          mkdir -p "$EVAL_BASE_DIR/hf_data/hub"
+          mkdir -p "$EVAL_BASE_DIR/hf_data/datasets"
           mkdir -p "$EVAL_BASE_DIR/$USER"
+          # Export for subsequent steps
+          echo "EVAL_BASE_DIR=$EVAL_BASE_DIR" >> $GITHUB_ENV
 
       - name: Run integration tests
-        env:
-          EVAL_BASE_DIR: /tmp/oellm-test
         run: |
           uv run pytest tests/integration/ -v --tb=short -x
 
@@ -157,7 +157,7 @@ jobs:
           sudo cp -r /var/log/slurm/* /tmp/slurm-logs/ 2>/dev/null || true
           sudo chmod -R 755 /tmp/slurm-logs 2>/dev/null || true
           # Only copy the evaluation run directory (logs, scripts, results), not the container or cached data
-          cp -r /tmp/oellm-test/runner /tmp/slurm-logs/ 2>/dev/null || true
+          cp -r "$EVAL_BASE_DIR/runner" /tmp/slurm-logs/ 2>/dev/null || true
 
       - name: Upload logs (on failure)
         if: failure()

@@ -16,14 +16,26 @@ def pytest_configure(config):
 
 @pytest.fixture(scope="module")
 def eval_base_dir(tmp_path_factory):
-    """Create a temporary evaluation directory for the test module."""
-    base_dir = tmp_path_factory.mktemp("oellm-test")
+    """Create a temporary evaluation directory for the test module.
+
+    If EVAL_BASE_DIR is set in the environment, use that (e.g., for NVMe storage in CI).
+    Otherwise, create a pytest temp directory.
+    """
+    from pathlib import Path
+
+    env_base_dir = os.environ.get("EVAL_BASE_DIR")
+    if env_base_dir:
+        base_dir = Path(env_base_dir)
+        base_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        base_dir = tmp_path_factory.mktemp("oellm-test")
+
     hf_home = base_dir / "hf_data"
-    hf_home.mkdir()
-    (hf_home / "hub").mkdir()
-    (hf_home / "datasets").mkdir()
+    hf_home.mkdir(exist_ok=True)
+    (hf_home / "hub").mkdir(exist_ok=True)
+    (hf_home / "datasets").mkdir(exist_ok=True)
     user = os.environ.get("USER", "runner")
-    (base_dir / user).mkdir()
+    (base_dir / user).mkdir(exist_ok=True)
     return base_dir
 
 
