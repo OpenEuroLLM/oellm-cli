@@ -1,15 +1,31 @@
 """Integration tests for the oellm schedule-eval workflow with SLURM."""
 
+import csv
 import json
 import os
 import re
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
 import pytest
 
-from oellm.task_groups import get_all_task_group_names
+from oellm.task_groups import _expand_task_groups, get_all_task_group_names
+
+
+def get_first_task_per_group() -> list[tuple[str, str, int, str]]:
+    """Get the first task from each task group for CI testing.
+
+    Returns list of (group_name, task_name, n_shot, suite) tuples.
+    """
+    results = []
+    for group_name in get_all_task_group_names():
+        expanded = _expand_task_groups([group_name])
+        if expanded:
+            first = expanded[0]
+            results.append((group_name, first.task, first.n_shot, first.suite))
+    return results
 
 
 def find_eval_dir(base_dir: Path) -> Path | None:
@@ -56,7 +72,7 @@ def wait_for_slurm_jobs(timeout: int = 600, poll_interval: int = 10) -> bool:
 def run_schedule_eval(
     task_groups: str, limit: int = 5, dry_run: bool = False, skip_checks: bool = False
 ):
-    """Run oellm schedule-eval and return the result."""
+    """Run oellm schedule-eval with task groups and return the result."""
     cmd = [
         "uv",
         "run",
@@ -66,6 +82,28 @@ def run_schedule_eval(
         "sshleifer/tiny-gpt2",
         "--task_groups",
         task_groups,
+        "--limit",
+        str(limit),
+    ]
+    if dry_run:
+        cmd.extend(["--dry_run", "true"])
+    if skip_checks:
+        cmd.extend(["--skip_checks", "true"])
+
+    return subprocess.run(cmd, capture_output=True, text=True)
+
+
+def run_schedule_eval_with_csv(
+    csv_path: str, limit: int = 1, dry_run: bool = False, skip_checks: bool = False
+):
+    """Run oellm schedule-eval with a CSV file and return the result."""
+    cmd = [
+        "uv",
+        "run",
+        "oellm",
+        "schedule-eval",
+        "--eval_csv_path",
+        csv_path,
         "--limit",
         str(limit),
     ]
@@ -105,9 +143,9 @@ class TestScheduleEvalDryRun:
             all_task_groups, limit=1, dry_run=True, skip_checks=True
         )
 
-        assert (
-            result.returncode == 0
-        ), f"schedule-eval failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
+        assert result.returncode == 0, (
+            f"schedule-eval failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
+        )
 
         self.eval_dir = find_eval_dir(slurm_env)
         if self.eval_dir is None:
@@ -244,34 +282,56 @@ class TestDatasetDownloads:
                 os.environ["HF_HUB_OFFLINE"] = old_offline
 
 
+def _get_first_task_params():
+    """Get parametrize values for first task per group."""
+    return get_first_task_per_group()
+
+
+def _first_task_id(val):
+    """Generate test ID for first task parameter."""
+    group_name, task_name, n_shot, suite = val
+    return f"{group_name}:{task_name}"
+
+
 @pytest.mark.slow
 @pytest.mark.usefixtures("slurm_available")
 class TestFullEvaluationPipeline:
-    """Full integration test with actual SLURM job submission - one test per task group."""
+    """Full integration test with actual SLURM job submission - first task per group."""
 
     @pytest.fixture(autouse=True)
     def setup_eval_tracking(self):
         """Track eval directories for result validation."""
         self.eval_dirs = []
 
-    @pytest.mark.parametrize("task_group", get_all_task_group_names())
-    def test_task_group_evaluation(self, slurm_env, task_group):
-        """Submit and run evaluation for a single task group."""
+    @pytest.mark.parametrize("task_info", _get_first_task_params(), ids=_first_task_id)
+    def test_task_group_evaluation(self, slurm_env, task_info):
+        """Submit and run evaluation for the first task of a task group."""
+        group_name, task_name, n_shot, suite = task_info
+
         print(f"\n{'=' * 60}")
-        print(f"Testing task group: {task_group}")
+        print(f"Testing: {group_name} -> {task_name} (n_shot={n_shot}, suite={suite})")
         print(f"{'=' * 60}")
 
-        result = run_schedule_eval(task_group, limit=1, dry_run=False)
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".csv", delete=False
+        ) as csv_file:
+            writer = csv.writer(csv_file)
+            writer.writerow(["model_path", "task_path", "n_shot", "eval_suite"])
+            writer.writerow(["sshleifer/tiny-gpt2", task_name, n_shot, suite])
+            csv_path = csv_file.name
+
+        result = run_schedule_eval_with_csv(csv_path, limit=1, dry_run=False)
+        os.unlink(csv_path)
 
         if result.returncode != 0:
             print(f"schedule-eval stdout:\n{result.stdout}")
             print(f"schedule-eval stderr:\n{result.stderr}")
-        assert (
-            result.returncode == 0
-        ), f"schedule-eval failed for {task_group}:\nSTDERR: {result.stderr}"
+        assert result.returncode == 0, (
+            f"schedule-eval failed for {group_name}:\nSTDERR: {result.stderr}"
+        )
 
         print("Waiting for job to complete...")
-        jobs_completed = wait_for_slurm_jobs(timeout=1200, poll_interval=10)
+        jobs_completed = wait_for_slurm_jobs(timeout=600, poll_interval=10)
 
         eval_dir = find_eval_dir(slurm_env)
 
@@ -284,8 +344,8 @@ class TestFullEvaluationPipeline:
                 print(f"\n--- {log} ---")
                 print(log.read_text()[-2000:])
 
-        assert jobs_completed, f"Job for {task_group} did not complete within timeout"
-        assert eval_dir is not None, f"Could not find eval directory for {task_group}"
+        assert jobs_completed, f"Job for {group_name} did not complete within timeout"
+        assert eval_dir is not None, f"Could not find eval directory for {group_name}"
 
         results_dir = eval_dir / "results"
         if not results_dir.exists():
@@ -297,12 +357,12 @@ class TestFullEvaluationPipeline:
                 for log in slurm_logs_dir.glob("*.err"):
                     print(f"\n--- {log.name} (stderr) ---")
                     print(log.read_text()[-3000:])
-        assert (
-            results_dir.exists()
-        ), f"Results directory not found for {task_group}: {results_dir}"
+        assert results_dir.exists(), (
+            f"Results directory not found for {group_name}: {results_dir}"
+        )
 
         json_files = list(results_dir.glob("*.json"))
-        assert len(json_files) > 0, f"No result JSON files for {task_group}"
+        assert len(json_files) > 0, f"No result JSON files for {group_name}"
 
         for json_file in json_files:
             with open(json_file) as f:
@@ -311,11 +371,11 @@ class TestFullEvaluationPipeline:
             assert "results" in data, f"Missing 'results' in {json_file.name}"
 
             results = data.get("results", {})
-            assert results, f"Empty results for {task_group}"
+            assert results, f"Empty results for {group_name}"
 
             for _, task_results in results.items():
                 if "acc,none" in task_results:
                     acc = task_results["acc,none"]
                     assert 0.0 <= acc <= 1.0, f"Accuracy {acc} out of range"
 
-        print(f"Task group {task_group}: PASSED ({len(json_files)} result files)")
+        print(f"{group_name}: PASSED ({task_name}, {len(json_files)} result files)")
