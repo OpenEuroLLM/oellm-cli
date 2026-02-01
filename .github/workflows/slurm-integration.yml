@@ -145,6 +145,13 @@ jobs:
           # Export for subsequent steps
           echo "EVAL_BASE_DIR=$EVAL_BASE_DIR" >> $GITHUB_ENV
 
+      - name: Build Apptainer container
+        run: |
+          echo "Building Apptainer container for CI..."
+          cd apptainer
+          sudo apptainer build "$EVAL_BASE_DIR/eval_env-slurm-ci.sif" slurm-ci.def
+          ls -lh "$EVAL_BASE_DIR/eval_env-slurm-ci.sif"
+
       - name: Run flores200 debug test
         run: |
           uv run pytest tests/integration/test_slurm.py::TestFlores200Debug -v -s --tb=long --timeout=300
