@@ -212,6 +212,30 @@ class TestScheduleEvalDryRun:
         assert "lm_eval" in content.lower() or "lm-eval" in content.lower()
 
 
+@pytest.mark.usefixtures("slurm_available")
+class TestDatasetDownloads:
+    """Test that all datasets for task groups can be downloaded."""
+
+    def test_all_datasets_download_successfully(self, slurm_env):
+        """Download all datasets required by task groups."""
+        from oellm.task_groups import _collect_dataset_specs
+        from oellm.utils import _pre_download_datasets_from_specs
+
+        all_task_groups = get_all_task_group_names()
+        print(f"\nCollecting dataset specs for {len(all_task_groups)} task groups...")
+
+        specs = _collect_dataset_specs(all_task_groups)
+        print(f"Found {len(specs)} dataset specs to download")
+
+        for spec in specs:
+            label = f"{spec.repo_id}" + (f"/{spec.subset}" if spec.subset else "")
+            print(f"  - {label}")
+
+        print("\nDownloading datasets...")
+        _pre_download_datasets_from_specs(specs, trust_remote_code=True)
+        print("All datasets downloaded successfully!")
+
+
 @pytest.mark.slow
 @pytest.mark.usefixtures("slurm_available")
 class TestFullEvaluationPipeline:

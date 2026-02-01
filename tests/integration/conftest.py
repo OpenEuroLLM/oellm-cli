@@ -47,7 +47,7 @@ def slurm_env(eval_base_dir, request):
         "HF_HUB_CACHE": str(hf_home / "hub"),
         "HF_DATASETS_CACHE": str(hf_home / "datasets"),
         "HUGGINGFACE_HUB_CACHE": str(hf_home / "hub"),
-        "PARTITION": "debug",
+        "PARTITION": "gpu",
         "ACCOUNT": "test",
         "QUEUE_LIMIT": "10",
         "EVAL_CONTAINER_IMAGE": "eval_env-slurm-ci.sif",
