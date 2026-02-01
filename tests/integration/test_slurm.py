@@ -235,20 +235,31 @@ class TestDatasetDownloads:
     @pytest.mark.parametrize("dataset_spec", _get_dataset_specs(), ids=_dataset_id)
     def test_dataset_downloads_and_loads_offline(self, slurm_env, dataset_spec):
         """Download a single dataset and verify it can be loaded offline."""
-        from datasets import load_dataset
+        from datasets import get_dataset_config_names, load_dataset
+
+        from oellm.task_groups import DatasetSpec
+        from oellm.utils import _pre_download_datasets_from_specs
 
         repo_id, subset = dataset_spec
         label = f"{repo_id}" + (f"/{subset}" if subset else "")
         print(f"\nDownloading dataset: {label}")
 
-        load_dataset(repo_id, name=subset, trust_remote_code=True)
+        spec = DatasetSpec(repo_id=repo_id, subset=subset)
+        _pre_download_datasets_from_specs([spec])
+
+        verify_subset = subset
+        if verify_subset is None:
+            configs = get_dataset_config_names(repo_id, trust_remote_code=True)
+            if configs:
+                verify_subset = configs[0]
+
         print("Download complete. Verifying offline access...")
 
         old_offline = os.environ.get("HF_HUB_OFFLINE")
         os.environ["HF_HUB_OFFLINE"] = "1"
 
         try:
-            load_dataset(repo_id, name=subset, trust_remote_code=True)
+            load_dataset(repo_id, name=verify_subset, trust_remote_code=True)
             print(f"Dataset {label}: OK (offline access verified)")
         finally:
             if old_offline is None:
