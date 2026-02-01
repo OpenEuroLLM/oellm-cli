@@ -223,9 +223,19 @@ class TestFullEvaluationPipeline:
         print(f"\nTesting {len(get_all_task_group_names())} task groups with --limit 5")
 
         result = run_schedule_eval(all_task_groups, limit=5, dry_run=False)
+        print(f"\nschedule-eval stdout:\n{result.stdout}")
+        if result.stderr:
+            print(f"\nschedule-eval stderr:\n{result.stderr}")
         assert (
             result.returncode == 0
         ), f"schedule-eval failed:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}"
+
+        squeue_result = subprocess.run(
+            ["squeue", "-u", os.environ.get("USER", "runner"), "-l"],
+            capture_output=True,
+            text=True,
+        )
+        print(f"\nsqueue after submission:\n{squeue_result.stdout}")
 
         print("\nWaiting for SLURM jobs to complete...")
         jobs_completed = wait_for_slurm_jobs(timeout=600, poll_interval=10)
