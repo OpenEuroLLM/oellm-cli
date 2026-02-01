@@ -456,6 +456,22 @@ class TestFlores200Debug:
         print(f"  SINGULARITY_ARGS: {os.environ.get('SINGULARITY_ARGS')}")
         print(f"  GPUS_PER_NODE: {os.environ.get('GPUS_PER_NODE')}")
 
+        print(f"\n[{time.strftime('%H:%M:%S')}] Pre-downloading model and dataset...")
+        from datasets import load_dataset
+        from huggingface_hub import snapshot_download
+
+        hf_cache = Path(os.environ.get("HF_HOME", "~/.cache/huggingface")) / "hub"
+        print(f"  HF cache dir: {hf_cache}")
+
+        print("  Downloading sshleifer/tiny-gpt2...")
+        snapshot_download("sshleifer/tiny-gpt2", cache_dir=hf_cache)
+        print("  Model downloaded.")
+
+        print("  Downloading facebook/flores (bul_Cyrl and eng_Latn subsets)...")
+        load_dataset("facebook/flores", name="bul_Cyrl", trust_remote_code=True)
+        load_dataset("facebook/flores", name="eng_Latn", trust_remote_code=True)
+        print("  Dataset subsets downloaded.")
+
         print(f"\n[{time.strftime('%H:%M:%S')}] Checking network connectivity...")
         net_result = subprocess.run(
             [
@@ -484,8 +500,13 @@ class TestFlores200Debug:
             csv_path = csv_file.name
             print(f"  CSV path: {csv_path}")
 
-        print(f"\n[{time.strftime('%H:%M:%S')}] Running schedule-eval...")
-        result = run_schedule_eval_with_csv(csv_path, limit=1, dry_run=False)
+        print(
+            f"\n[{time.strftime('%H:%M:%S')}] Running schedule-eval (skip_checks=True)..."
+        )
+        # skip_checks=True to avoid downloading ALL ~200 flores configs
+        result = run_schedule_eval_with_csv(
+            csv_path, limit=1, dry_run=False, skip_checks=True
+        )
         os.unlink(csv_path)
 
         print(f"\n[{time.strftime('%H:%M:%S')}] schedule-eval result:")
