@@ -5,7 +5,7 @@ task_groups:
     tasks:
       - task: copa
         n_shots: [0]
-        dataset: super_glue
+        dataset: aps/super_glue
         subset: copa
       - task: social_iqa
         n_shots: [0]
