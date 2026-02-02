@@ -563,9 +563,10 @@ class TestFlores200Debug:
                         content = log.read_text()
                         if content:
                             lines = content.strip().split("\n")
-                            print(
-                                f"  Latest error ({log.name}): {lines[-1][:100] if lines else 'empty'}"
-                            )
+                            last_lines = lines[-3:] if len(lines) >= 3 else lines
+                            print(f"  Errors ({log.name}, {len(lines)} lines):")
+                            for line in last_lines:
+                                print(f"    {line[:120]}")
 
             time.sleep(poll_interval)
 

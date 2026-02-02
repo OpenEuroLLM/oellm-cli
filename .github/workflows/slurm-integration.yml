@@ -157,6 +157,10 @@ jobs:
             while true; do
               echo ""
               echo "📊 [MONITOR $(date +%H:%M:%S)] Memory: $(free -h | awk '/^Mem:/{print $3"/"$2}') | Disk: $(df -h / | awk 'NR==2{print $3"/"$2}')"
+              # GPU monitoring
+              if command -v nvidia-smi &> /dev/null; then
+                echo "📊 [GPU] $(nvidia-smi --query-gpu=memory.used,memory.total,utilization.gpu --format=csv,noheader,nounits | awk -F', ' '{print $1"/"$2" MiB ("$3"% util)"}')"
+              fi
               sleep 15
             done
           ) &
