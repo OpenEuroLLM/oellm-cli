@@ -26,6 +26,15 @@ jureca:
   EVAL_CONTAINER_IMAGE: "eval_env-jureca.sif"
   SINGULARITY_ARGS: "--nv"
 
+jupiter:
+  hostname_pattern: "jp*"
+  EVAL_BASE_DIR: "/e/data1/datasets/playground/mmlaion/shared/oellm_shared_evals"
+  PARTITION: "booster"
+  ACCOUNT: "jureap59"
+  QUEUE_LIMIT: 250
+  EVAL_CONTAINER_IMAGE: "eval_env-jupiter.sif"
+  SINGULARITY_ARGS: "--nv --contain --env PYTHONNOUSERSITE=1"
+
 lumi:
   hostname_pattern: "uan*"
   EVAL_BASE_DIR: "/pfs/lustrep4/scratch/project_462000963/oellm-cli-shared-evals"
