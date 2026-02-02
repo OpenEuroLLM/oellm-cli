@@ -14,7 +14,7 @@ jobs:
   slurm-integration:
     name: SLURM + Apptainer Integration Test (GPU)
     runs-on: "runs-on=${{ github.run_id }}/family=g4dn.xlarge/image=ubuntu24-gpu-x64/spot=false"
-    timeout-minutes: 90
+    timeout-minutes: 45
 
     steps:
       - name: Checkout repository
@@ -145,9 +145,9 @@ jobs:
           # Export for subsequent steps
           echo "EVAL_BASE_DIR=$EVAL_BASE_DIR" >> $GITHUB_ENV
 
-      - name: Run flores200 debug test
+      - name: Run integration tests
         run: |
-          uv run pytest tests/integration/test_slurm.py::TestFlores200Debug -v -s --tb=long --timeout=300
+          uv run pytest tests/integration/test_slurm.py -v -s --tb=long --timeout=600
         continue-on-error: true
         id: flores_test
 

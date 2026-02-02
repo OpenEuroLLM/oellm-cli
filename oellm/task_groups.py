@@ -207,7 +207,7 @@ def _collect_dataset_specs(group_names: Iterable[str]) -> list[DatasetSpec]:
     return specs
 
 
-def _build_task_dataset_map() -> dict[str, DatasetSpec]:
+def _build_task_dataset_map() -> dict[str, list[DatasetSpec]]:
     """Build a mapping from task names to their dataset specs from all task groups."""
     data = (
         yaml.safe_load((files("oellm.resources") / "task-groups.yaml").read_text()) or {}
@@ -216,13 +216,21 @@ def _build_task_dataset_map() -> dict[str, DatasetSpec]:
     all_group_names = list(data.get("task_groups", {}).keys())
     parsed = _parse_task_groups(all_group_names)
 
-    task_map: dict[str, DatasetSpec] = {}
+    task_map: dict[str, list[DatasetSpec]] = {}
 
     for _, group in parsed.items():
         if isinstance(group, TaskGroup):
             for t in group.tasks:
                 if t.dataset and t.name not in task_map:
-                    task_map[t.name] = DatasetSpec(repo_id=t.dataset, subset=t.subset)
+                    if t.dataset == "facebook/flores" and not t.subset:
+                        task_map[t.name] = [
+                            DatasetSpec(repo_id=t.dataset, subset=lang)
+                            for lang in _extract_flores_subsets(t.name)
+                        ]
+                    else:
+                        task_map[t.name] = [
+                            DatasetSpec(repo_id=t.dataset, subset=t.subset)
+                        ]
 
     return task_map
 
@@ -238,8 +246,8 @@ def _lookup_dataset_specs_for_tasks(task_names: Iterable[str]) -> list[DatasetSp
         task_name = str(task_name).strip()
         if not task_name:
             continue
-        spec = task_map.get(task_name)
-        if spec:
+        task_specs = task_map.get(task_name, [])
+        for spec in task_specs:
             key = (spec.repo_id, spec.subset)
             if key not in seen:
                 seen.add(key)

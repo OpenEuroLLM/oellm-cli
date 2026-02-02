@@ -92,7 +92,11 @@ def run_schedule_eval(
 
 
 def run_schedule_eval_with_csv(
-    csv_path: str, limit: int = 1, dry_run: bool = False, skip_checks: bool = False
+    csv_path: str,
+    limit: int = 1,
+    dry_run: bool = False,
+    skip_checks: bool = False,
+    verbose: bool = False,
 ):
     """Run oellm schedule-eval with a CSV file and return the result."""
     cmd = [
@@ -109,6 +113,8 @@ def run_schedule_eval_with_csv(
         cmd.extend(["--dry_run", "true"])
     if skip_checks:
         cmd.extend(["--skip_checks", "true"])
+    if verbose:
+        cmd.extend(["--verbose", "true"])
 
     return subprocess.run(cmd, capture_output=True, text=True)
 
@@ -484,8 +490,10 @@ class TestFlores200Debug:
             csv_path = csv_file.name
             print(f"  CSV path: {csv_path}")
 
-        print(f"\n[{time.strftime('%H:%M:%S')}] Running schedule-eval...")
-        result = run_schedule_eval_with_csv(csv_path, limit=1, dry_run=False)
+        print(f"\n[{time.strftime('%H:%M:%S')}] Running schedule-eval (verbose)...")
+        result = run_schedule_eval_with_csv(
+            csv_path, limit=1, dry_run=False, verbose=True
+        )
         os.unlink(csv_path)
 
         print(f"\n[{time.strftime('%H:%M:%S')}] schedule-eval result:")
