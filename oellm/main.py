@@ -85,7 +85,6 @@ def schedule_evals(
     """
     _setup_logging(verbose)
 
-    # Load cluster-specific environment variables (paths, etc.)
     _load_cluster_env()
 
     if not skip_checks:
@@ -192,7 +191,6 @@ def schedule_evals(
             "Skipping model path processing and validation (--skip-checks enabled)"
         )
 
-    # create csv
     df = pd.DataFrame(expanded_eval_jobs)
 
     if df.empty:
@@ -327,7 +325,6 @@ def schedule_evals(
         logging.info("To submit the job, run: sbatch " + str(sbatch_script_path))
         return
 
-    # Submit the job script to slurm by piping the script content to sbatch
     try:
         logging.info("Calling sbatch to launch the evaluations")
 
@@ -348,7 +345,6 @@ def schedule_evals(
         )
         logging.info("Job submitted successfully.")
         logging.info(result.stdout)
-        # Extract job ID from sbatch output for monitoring commands
         job_id_match = re.search(r"Submitted batch job (\d+)", result.stdout)
         if job_id_match:
             job_id = job_id_match.group(1)
