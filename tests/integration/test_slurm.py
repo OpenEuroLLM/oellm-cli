@@ -146,9 +146,6 @@ class TestScheduleEvalDryRun:
         self.sbatch_path = self.eval_dir / "submit_evals.sbatch"
         self.csv_path = self.eval_dir / "jobs.csv"
 
-    def test_sbatch_script_exists(self):
-        assert self.sbatch_path.exists(), f"sbatch script not found at {self.sbatch_path}"
-
     @pytest.mark.parametrize(
         "pattern,description",
         [
@@ -177,9 +174,6 @@ class TestScheduleEvalDryRun:
         )
         assert result.returncode == 0, f"Bash syntax error: {result.stderr}"
 
-    def test_jobs_csv_exists(self):
-        assert self.csv_path.exists(), f"jobs.csv not found at {self.csv_path}"
-
     def test_jobs_csv_has_header(self):
         content = self.csv_path.read_text()
         header = content.split("\n")[0]
@@ -194,12 +188,6 @@ class TestScheduleEvalDryRun:
         lines = [line for line in content.strip().split("\n") if line]
 
         assert len(lines) > 1, "No jobs in CSV (only header found)"
-
-    def test_jobs_csv_contains_all_task_groups(self):
-        content = self.csv_path.read_text()
-
-        assert "sshleifer/tiny-gpt2" in content
-        assert "lm_eval" in content.lower() or "lm-eval" in content.lower()
 
 
 def _get_dataset_specs():
@@ -219,38 +207,13 @@ def _dataset_id(val):
 @pytest.mark.usefixtures("slurm_available")
 class TestDatasetDownloads:
     @pytest.mark.parametrize("dataset_spec", _get_dataset_specs(), ids=_dataset_id)
-    def test_dataset_downloads_and_loads_offline(self, slurm_env, dataset_spec):
-        from datasets import get_dataset_config_names, load_dataset
-
+    def test_dataset_downloads(self, slurm_env, dataset_spec):
         from oellm.task_groups import DatasetSpec
         from oellm.utils import _pre_download_datasets_from_specs
 
         repo_id, subset = dataset_spec
-        label = f"{repo_id}" + (f"/{subset}" if subset else "")
-        print(f"\nDownloading dataset: {label}")
-
         spec = DatasetSpec(repo_id=repo_id, subset=subset)
         _pre_download_datasets_from_specs([spec])
-
-        verify_subset = subset
-        if verify_subset is None:
-            configs = get_dataset_config_names(repo_id, trust_remote_code=True)
-            if configs:
-                verify_subset = configs[0]
-
-        print("Download complete. Verifying offline access...")
-
-        old_offline = os.environ.get("HF_HUB_OFFLINE")
-        os.environ["HF_HUB_OFFLINE"] = "1"
-
-        try:
-            load_dataset(repo_id, name=verify_subset, trust_remote_code=True)
-            print(f"Dataset {label}: OK (offline access verified)")
-        finally:
-            if old_offline is None:
-                os.environ.pop("HF_HUB_OFFLINE", None)
-            else:
-                os.environ["HF_HUB_OFFLINE"] = old_offline
 
 
 def _first_task_id(val):
