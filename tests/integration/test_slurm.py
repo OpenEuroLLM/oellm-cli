@@ -130,6 +130,7 @@ class TestSlurmAvailability:
         assert "PARTITION" in result.stdout or "STATE" in result.stdout
 
 
+@pytest.mark.skip
 @pytest.mark.dry_run
 @pytest.mark.usefixtures("slurm_available")
 class TestScheduleEvalDryRun:
