@@ -136,11 +136,11 @@ jobs:
 
       - name: Create swap file
         run: |
-          # Create 16GB swap file to handle memory spikes during lighteval initialization
-          sudo fallocate -l 16G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
+          # Create 16GB swap file on ephemeral storage to handle memory spikes
+          sudo fallocate -l 32G /mnt/ephemeral/swapfile
+          sudo chmod 600 /mnt/ephemeral/swapfile
+          sudo mkswap /mnt/ephemeral/swapfile
+          sudo swapon /mnt/ephemeral/swapfile
           echo "Swap enabled:"
           free -h
 
