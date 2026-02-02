@@ -25,7 +25,7 @@ From: nvcr.io/nvidia/pytorch:25.06-py3
     # lighteval as isolated tool (avoids dependency conflicts)
     uv tool install --python 3.12 \
         --with "langcodes[data]" \
-        "lighteval[multilingual] @ git+https://github.com/huggingface/lighteval.git@63424f4e795ecc577b90646381b374af3a627978"
+        "lighteval[multilingual] @ git+https://github.com/huggingface/lighteval.git"
 
     # NLTK data
     mkdir -p /opt/nltk_data
