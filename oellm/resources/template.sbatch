@@ -133,7 +133,6 @@ do
 
             singularity exec $SINGULARITY_ARGS \
                 --bind $BIND_PATHS \
-                --env CUDA_VISIBLE_DEVICES=$SLURM_GPUS_PER_NODE \
                 --env OMP_NUM_THREADS=1 \
                 --env TOKENIZERS_PARALLELISM=false \
                 $EVAL_SIF_PATH \
