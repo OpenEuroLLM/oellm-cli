@@ -19,14 +19,18 @@ jobs:
       matrix:
         image: [slurm-ci, jureca, leonardo, lumi]
     name: Build & Publish SIF Artifact (${{ matrix.image }})
-    runs-on:
-      - runs-on=${{github.run_id}}/family=i7ie.large/volume=80g
+    runs-on: "runs-on=${{ github.run_id }}/family=i7ie.large/spot=false"
     permissions:
       contents: read
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: check disk space
+        run: |
+          echo "Disk info:"
+          df -h
 
       - name: Install Apptainer
         run: |
