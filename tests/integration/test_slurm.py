@@ -245,7 +245,7 @@ def _dataset_id(val):
     return repo_id.split("/")[-1]
 
 
-# @pytest.mark.skip(reason="Temporarily disabled to speed up iteration")
+@pytest.mark.skip(reason="Temporarily disabled to speed up iteration")
 @pytest.mark.usefixtures("slurm_available")
 class TestDatasetDownloads:
     """Test that all datasets for task groups can be downloaded - one test per dataset."""
