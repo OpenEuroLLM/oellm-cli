@@ -13,7 +13,7 @@ on:
 jobs:
   slurm-integration:
     name: SLURM + Apptainer Integration Test (GPU)
-    runs-on: "runs-on=${{ github.run_id }}/family=g4dn.2xlarge/image=ubuntu24-gpu-x64/spot=false"
+    runs-on: "runs-on=${{ github.run_id }}/family=g4dn.xlarge/image=ubuntu24-gpu-x64/spot=false"
     timeout-minutes: 45
 
     steps:
@@ -145,9 +145,26 @@ jobs:
           # Export for subsequent steps
           echo "EVAL_BASE_DIR=$EVAL_BASE_DIR" >> $GITHUB_ENV
 
-      - name: Run integration tests
+      - name: Run integration tests with resource monitoring
         run: |
+          # Start background monitor that prints to stdout (visible in GH Actions console)
+          (
+            while true; do
+              echo ""
+              echo "📊 [MONITOR $(date +%H:%M:%S)] Memory: $(free -h | awk '/^Mem:/{print $3"/"$2}') | Disk: $(df -h / | awk 'NR==2{print $3"/"$2}')"
+              sleep 30
+            done
+          ) &
+          MONITOR_PID=$!
+
+          # Run tests
           uv run pytest tests/integration/test_slurm.py -v -s --tb=long --timeout=600
+          TEST_EXIT=$?
+
+          # Cleanup monitor
+          kill $MONITOR_PID 2>/dev/null || true
+
+          exit $TEST_EXIT
         continue-on-error: true
         id: flores_test
 
@@ -160,8 +177,20 @@ jobs:
           sudo chmod -R 755 /tmp/slurm-logs 2>/dev/null || true
           # Only copy the evaluation run directory (logs, scripts, results), not the container or cached data
           cp -r "$EVAL_BASE_DIR/runner" /tmp/slurm-logs/ 2>/dev/null || true
-          # Extra debug info
-          echo "=== squeue ===" > /tmp/slurm-logs/debug_info.txt
+
+          # System diagnostics
+          echo "=== Final Resource State ===" > /tmp/slurm-logs/debug_info.txt
+          echo "-- Memory --" >> /tmp/slurm-logs/debug_info.txt
+          free -h >> /tmp/slurm-logs/debug_info.txt
+          echo "-- Disk --" >> /tmp/slurm-logs/debug_info.txt
+          df -h >> /tmp/slurm-logs/debug_info.txt
+
+          echo "" >> /tmp/slurm-logs/debug_info.txt
+          echo "=== OOM Killer Messages ===" >> /tmp/slurm-logs/debug_info.txt
+          sudo dmesg | grep -i -E 'oom|killed|out of memory' >> /tmp/slurm-logs/debug_info.txt 2>&1 || echo "No OOM messages" >> /tmp/slurm-logs/debug_info.txt
+
+          echo "" >> /tmp/slurm-logs/debug_info.txt
+          echo "=== squeue ===" >> /tmp/slurm-logs/debug_info.txt
           squeue -a >> /tmp/slurm-logs/debug_info.txt 2>&1 || true
           echo "=== ps aux | grep -E 'python|lighteval' ===" >> /tmp/slurm-logs/debug_info.txt
           ps aux | grep -E 'python|lighteval' >> /tmp/slurm-logs/debug_info.txt 2>&1 || true
