@@ -134,12 +134,15 @@ do
             singularity exec $SINGULARITY_ARGS \
                 --bind $BIND_PATHS \
                 --env CUDA_VISIBLE_DEVICES=$SLURM_GPUS_PER_NODE \
+                --env OMP_NUM_THREADS=1 \
+                --env TOKENIZERS_PARALLELISM=false \
                 $EVAL_SIF_PATH \
                 lighteval accelerate \
                     "model_name=$model_path,trust_remote_code=True" \
                     "$LIGHT_TASK_ARG" \
                     --custom-tasks lighteval.tasks.multilingual.tasks \
                     --output-dir "$RESULTS_SUBDIR" \
+                    --override-batch-size 1 \
                     ${{LIMIT:+--max-samples $LIMIT}}
             ;;
         *)
