@@ -89,8 +89,8 @@ jobs:
           # GRES (GPU) configuration
           GresTypes=gpu
 
-          # Node definition with GPU (use 15000 to account for system overhead on g4dn.xlarge)
-          NodeName=${HOSTNAME} CPUs=4 Gres=gpu:1 RealMemory=15000 State=UNKNOWN
+          # Node definition with GPU (use 30000 to account for system overhead on g5.2xlarge)
+          NodeName=${HOSTNAME} CPUs=6 Gres=gpu:1 RealMemory=24000 State=UNKNOWN
           PartitionName=gpu Nodes=${HOSTNAME} Default=YES MaxTime=INFINITE State=UP
           EOF
 
@@ -134,6 +134,16 @@ jobs:
       - name: Install oellm with dev dependencies
         run: uv sync --extra dev
 
+      - name: Create swap file
+        run: |
+          # Create 16GB swap file to handle memory spikes during lighteval initialization
+          sudo fallocate -l 16G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          echo "Swap enabled:"
+          free -h
+
       - name: Set up test environment
         run: |
           # Use a directory next to the workspace (which runs-on puts on NVMe for instance-storage types)
@@ -156,7 +166,7 @@ jobs:
             sleep 15  # First check after 15s
             while true; do
               echo ""
-              echo "📊 [MONITOR $(date +%H:%M:%S)] Memory: $(free -h | awk '/^Mem:/{print $3"/"$2}') | Disk: $(df -h / | awk 'NR==2{print $3"/"$2}')"
+              echo "📊 [MONITOR $(date +%H:%M:%S)] Memory: $(free -h | awk '/^Mem:/{print $3"/"$2}') | Swap: $(free -h | awk '/^Swap:/{print $3"/"$2}') | Disk: $(df -h / | awk 'NR==2{print $3"/"$2}')"
               # GPU monitoring
               if command -v nvidia-smi &> /dev/null; then
                 echo "📊 [GPU] $(nvidia-smi --query-gpu=memory.used,memory.total,utilization.gpu --format=csv,noheader,nounits | awk -F', ' '{print $1"/"$2" MiB ("$3"% util)"}')"
