@@ -147,12 +147,17 @@ jobs:
 
       - name: Run integration tests with resource monitoring
         run: |
+          # Print baseline
+          echo "📊 [BASELINE] Memory: $(free -h | awk '/^Mem:/{print $3"/"$2" (available: "$7")"}')"
+          echo "📊 [BASELINE] Disk: $(df -h / | awk 'NR==2{print $3"/"$2" ("$5" used)"}')"
+
           # Start background monitor that prints to stdout (visible in GH Actions console)
           (
+            sleep 15  # First check after 15s
             while true; do
               echo ""
               echo "📊 [MONITOR $(date +%H:%M:%S)] Memory: $(free -h | awk '/^Mem:/{print $3"/"$2}') | Disk: $(df -h / | awk 'NR==2{print $3"/"$2}')"
-              sleep 30
+              sleep 15
             done
           ) &
           MONITOR_PID=$!

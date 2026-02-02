@@ -559,6 +559,13 @@ class TestFlores200Debug:
                             print(
                                 f"  Latest output ({log.name}): {lines[-1][:100] if lines else 'empty'}"
                             )
+                    for log in slurm_logs.glob("*.err"):
+                        content = log.read_text()
+                        if content:
+                            lines = content.strip().split("\n")
+                            print(
+                                f"  Latest error ({log.name}): {lines[-1][:100] if lines else 'empty'}"
+                            )
 
             time.sleep(poll_interval)
 
