@@ -13,7 +13,7 @@ on:
 jobs:
   slurm-integration:
     name: SLURM + Apptainer Integration Test (GPU)
-    runs-on: "runs-on=${{ github.run_id }}/family=g5.2xlarge/image=ubuntu24-gpu-x64"
+    runs-on: "runs-on=${{ github.run_id }}/family=g4dn.xlarge/image=ubuntu24-gpu-x64"
     timeout-minutes: 45
 
     steps:
@@ -89,8 +89,8 @@ jobs:
           # GRES (GPU) configuration
           GresTypes=gpu
 
-          # Node definition with GPU (use 30000 to account for system overhead on g5.2xlarge)
-          NodeName=${HOSTNAME} CPUs=6 Gres=gpu:1 RealMemory=24000 State=UNKNOWN
+          # Node definition with GPU (use 15000 to account for system overhead on g4dn.xlarge)
+          NodeName=${HOSTNAME} CPUs=4 Gres=gpu:1 RealMemory=15000 State=UNKNOWN
           PartitionName=gpu Nodes=${HOSTNAME} Default=YES MaxTime=INFINITE State=UP
           EOF
 

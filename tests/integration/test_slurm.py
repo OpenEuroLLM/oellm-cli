@@ -593,11 +593,11 @@ class TestFlores200Debug:
         results_dir = eval_dir / "results"
         assert results_dir.exists(), f"Results directory not found: {results_dir}"
 
-        json_files = list(results_dir.glob("*.json"))
+        json_files = list(results_dir.glob("**/*.json"))
         assert len(json_files) > 0, "No result JSON files found"
 
         print(
             f"\n[{time.strftime('%H:%M:%S')}] SUCCESS - Found {len(json_files)} result files"
         )
         for jf in json_files:
-            print(f"  {jf.name}")
+            print(f"  {jf.relative_to(results_dir)}")
