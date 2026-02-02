@@ -136,17 +136,13 @@ jobs:
 
       - name: Create swap file
         run: |
-          # Create 16GB swap file on ephemeral storage to handle memory spikes
-          sudo fallocate -l 32G /mnt/ephemeral/swapfile
+          sudo fallocate -l 16G /mnt/ephemeral/swapfile
           sudo chmod 600 /mnt/ephemeral/swapfile
           sudo mkswap /mnt/ephemeral/swapfile
           sudo swapon /mnt/ephemeral/swapfile
-          echo "Swap enabled:"
-          free -h
 
       - name: Set up test environment
         run: |
-          # Use a directory next to the workspace (which runs-on puts on NVMe for instance-storage types)
           EVAL_BASE_DIR="${GITHUB_WORKSPACE}/../oellm-test"
           mkdir -p "$EVAL_BASE_DIR"
           mkdir -p "$EVAL_BASE_DIR/hf_data/hub"
@@ -155,75 +151,21 @@ jobs:
           # Export for subsequent steps
           echo "EVAL_BASE_DIR=$EVAL_BASE_DIR" >> $GITHUB_ENV
 
-      - name: Run integration tests with resource monitoring
-        run: |
-          # Print baseline
-          echo "📊 [BASELINE] Memory: $(free -h | awk '/^Mem:/{print $3"/"$2" (available: "$7")"}')"
-          echo "📊 [BASELINE] Disk: $(df -h / | awk 'NR==2{print $3"/"$2" ("$5" used)"}')"
-
-          # Start background monitor that prints to stdout (visible in GH Actions console)
-          (
-            sleep 15  # First check after 15s
-            while true; do
-              echo ""
-              echo "📊 [MONITOR $(date +%H:%M:%S)] Memory: $(free -h | awk '/^Mem:/{print $3"/"$2}') | Swap: $(free -h | awk '/^Swap:/{print $3"/"$2}') | Disk: $(df -h / | awk 'NR==2{print $3"/"$2}')"
-              # GPU monitoring
-              if command -v nvidia-smi &> /dev/null; then
-                echo "📊 [GPU] $(nvidia-smi --query-gpu=memory.used,memory.total,utilization.gpu --format=csv,noheader,nounits | awk -F', ' '{print $1"/"$2" MiB ("$3"% util)"}')"
-              fi
-              sleep 15
-            done
-          ) &
-          MONITOR_PID=$!
-
-          # Run tests
-          uv run pytest tests/integration/test_slurm.py -v -s --tb=long --timeout=600
-          TEST_EXIT=$?
-
-          # Cleanup monitor
-          kill $MONITOR_PID 2>/dev/null || true
-
-          exit $TEST_EXIT
-        continue-on-error: true
-        id: flores_test
+      - name: Run integration tests
+        run: uv run pytest tests/integration/test_slurm.py -v -s --tb=long --timeout=600
 
       - name: Collect logs
-        if: always()
+        if: failure()
         run: |
           mkdir -p /tmp/slurm-logs
-          # SLURM daemon logs
           sudo cp -r /var/log/slurm/* /tmp/slurm-logs/ 2>/dev/null || true
           sudo chmod -R 755 /tmp/slurm-logs 2>/dev/null || true
-          # Only copy the evaluation run directory (logs, scripts, results), not the container or cached data
           cp -r "$EVAL_BASE_DIR/runner" /tmp/slurm-logs/ 2>/dev/null || true
 
-          # System diagnostics
-          echo "=== Final Resource State ===" > /tmp/slurm-logs/debug_info.txt
-          echo "-- Memory --" >> /tmp/slurm-logs/debug_info.txt
-          free -h >> /tmp/slurm-logs/debug_info.txt
-          echo "-- Disk --" >> /tmp/slurm-logs/debug_info.txt
-          df -h >> /tmp/slurm-logs/debug_info.txt
-
-          echo "" >> /tmp/slurm-logs/debug_info.txt
-          echo "=== OOM Killer Messages ===" >> /tmp/slurm-logs/debug_info.txt
-          sudo dmesg | grep -i -E 'oom|killed|out of memory' >> /tmp/slurm-logs/debug_info.txt 2>&1 || echo "No OOM messages" >> /tmp/slurm-logs/debug_info.txt
-
-          echo "" >> /tmp/slurm-logs/debug_info.txt
-          echo "=== squeue ===" >> /tmp/slurm-logs/debug_info.txt
-          squeue -a >> /tmp/slurm-logs/debug_info.txt 2>&1 || true
-          echo "=== ps aux | grep -E 'python|lighteval' ===" >> /tmp/slurm-logs/debug_info.txt
-          ps aux | grep -E 'python|lighteval' >> /tmp/slurm-logs/debug_info.txt 2>&1 || true
-          echo "=== sacrebleu cache ===" >> /tmp/slurm-logs/debug_info.txt
-          ls -la ~/.sacrebleu/models/ >> /tmp/slurm-logs/debug_info.txt 2>&1 || echo "No sacrebleu cache" >> /tmp/slurm-logs/debug_info.txt
-
-      - name: Upload logs (always)
-        if: always()
+      - name: Upload logs
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: slurm-logs-flores200-debug
+          name: slurm-logs
           path: /tmp/slurm-logs/
-          retention-days: 30
-
-      - name: Fail if flores test failed
-        if: steps.flores_test.outcome == 'failure'
-        run: exit 1
+          retention-days: 7
