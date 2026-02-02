@@ -142,7 +142,6 @@ do
                     "$LIGHT_TASK_ARG" \
                     --custom-tasks lighteval.tasks.multilingual.tasks \
                     --output-dir "$RESULTS_SUBDIR" \
-                    --override-batch-size 1 \
                     ${{LIMIT:+--max-samples $LIMIT}}
             ;;
         *)
