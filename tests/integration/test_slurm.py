@@ -70,7 +70,7 @@ def run_schedule_eval(
         "oellm",
         "schedule-eval",
         "--models",
-        "sshleifer/tiny-gpt2",
+        "HuggingFaceTB/SmolLM2-135M-Instruct",
         "--task_groups",
         task_groups,
         "--limit",
@@ -237,7 +237,9 @@ class TestFullEvaluationPipeline:
         ) as csv_file:
             writer = csv.writer(csv_file)
             writer.writerow(["model_path", "task_path", "n_shot", "eval_suite"])
-            writer.writerow(["sshleifer/tiny-gpt2", task_name, n_shot, suite])
+            writer.writerow(
+                ["HuggingFaceTB/SmolLM2-135M-Instruct", task_name, n_shot, suite]
+            )
             csv_path = csv_file.name
 
         result = run_schedule_eval_with_csv(csv_path, limit=1, dry_run=False)
