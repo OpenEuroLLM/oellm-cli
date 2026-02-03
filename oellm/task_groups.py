@@ -164,12 +164,16 @@ def _expand_task_groups(group_names: Iterable[str]) -> list[TaskGroupResult]:
 
 
 def _extract_flores_subsets(task_name: str) -> list[str]:
-    """Extract language subsets from flores-style task names like 'flores200:bul_Cyrl-eng_Latn'."""
+    """Extract language subsets from flores-style task names like 'flores200:bul_Cyrl-eng_Latn'.
+
+    Returns both the translation pair (e.g. 'bul_Cyrl-eng_Latn') that lighteval needs,
+    and the individual languages for potential fallback.
+    """
     if not task_name.startswith("flores200:"):
         return []
     lang_part = task_name.split(":", 1)[1]
     if "-" in lang_part:
-        return lang_part.split("-")
+        return [lang_part] + lang_part.split("-")
     return []
 
 
