@@ -1,7 +1,6 @@
 shared:
   TIME_LIMIT: "00:30:00"  # time limit in the format HH:MM:SS
   UV_LINK_MODE: "copy"
-  PYTHON_PATH: "{EVAL_BASE_DIR}/.venv"
   HF_HOME: "{EVAL_BASE_DIR}/hf_data"  # where HuggingFace models and datasets are stored
   EVAL_OUTPUT_DIR: "{EVAL_BASE_DIR}/{USER}"  # where evaluations are written
   GPUS_PER_NODE: 1

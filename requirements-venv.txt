@@ -1,0 +1,11 @@
+# Dependencies for running evaluations with --venv_path (without containers)
+# Install with: uv pip install -r requirements-venv.txt
+
+lm-eval
+lighteval[multilingual]
+langcodes[data]
+pillow
+torch
+transformers
+accelerate
+datasets<4.0.0
