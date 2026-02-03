@@ -2,7 +2,7 @@
 # Install with: uv pip install -r requirements-venv.txt
 
 lm-eval
-lighteval[multilingual]
+lighteval[multilingual] @ git+https://github.com/huggingface/lighteval.git
 langcodes[data]
 pillow
 torch
