@@ -6,9 +6,9 @@ Instead of using pre-built containers, you can run evaluations with your own Pyt
 
 ## Setup
 
-1. Create a venv:
+1. Create a venv with Python 3.12:
    ```bash
-   uv venv /path/to/your/.venv
+   uv venv --python 3.12 /path/to/your/.venv
    ```
 
 2. Install dependencies:

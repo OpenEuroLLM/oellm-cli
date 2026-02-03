@@ -158,7 +158,7 @@ jobs:
       - name: Create test venv (venv mode)
         if: matrix.mode == 'venv'
         run: |
-          uv venv "$EVAL_BASE_DIR/.venv"
+          uv venv --python 3.12 "$EVAL_BASE_DIR/.venv"
           uv pip install --python "$EVAL_BASE_DIR/.venv/bin/python" -r requirements-venv.txt
 
       - name: Run integration tests
