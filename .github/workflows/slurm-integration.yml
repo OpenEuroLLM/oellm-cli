@@ -152,7 +152,7 @@ jobs:
           echo "EVAL_BASE_DIR=$EVAL_BASE_DIR" >> $GITHUB_ENV
 
       - name: Run integration tests
-        run: uv run pytest tests/integration/test_slurm.py -v --tb=long --timeout=600 -k "test_task_group_evaluation and flores-200-eu-to-eng" -s
+        run: uv run pytest tests/integration/test_slurm.py -v --tb=long --timeout=600
 
       - name: Collect logs
         if: always()
