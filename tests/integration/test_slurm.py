@@ -186,9 +186,13 @@ class TestScheduleEvalDryRun:
     def test_sbatch_execution_mode_patterns(self):
         content = self.sbatch_path.read_text()
         if self.venv_path:
-            assert self.venv_path in content, "venv mode should include venv_path in script"
+            assert self.venv_path in content, (
+                "venv mode should include venv_path in script"
+            )
         else:
-            assert re.search(r"singularity exec", content), "container mode should use singularity exec"
+            assert re.search(r"singularity exec", content), (
+                "container mode should use singularity exec"
+            )
 
     def test_sbatch_bash_syntax_valid(self):
         result = subprocess.run(
@@ -254,7 +258,9 @@ class TestFullEvaluationPipeline:
 
         mode_desc = "venv" if venv_path else "container"
         print(f"\n{'=' * 60}")
-        print(f"Testing: {group_name} -> {task_name} (n_shot={n_shot}, suite={suite}, mode={mode_desc})")
+        print(
+            f"Testing: {group_name} -> {task_name} (n_shot={n_shot}, suite={suite}, mode={mode_desc})"
+        )
         print(f"{'=' * 60}")
 
         with tempfile.NamedTemporaryFile(
