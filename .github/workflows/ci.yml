@@ -2,52 +2,68 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   lint-and-format:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        version: "latest"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
 
-    - name: Set up Python 3.12
-      run: uv python install 3.12
+      - name: Set up Python 3.12
+        run: uv python install 3.12
 
-    - name: Check code formatting with Ruff
-      run: |
-        uvx ruff format --check --diff .
+      - name: Check code formatting with Ruff
+        run: uvx ruff format --check --diff .
 
-    - name: Lint with Ruff
-      run: |
-        uvx ruff check .
+      - name: Lint with Ruff
+        run: uvx ruff check .
 
-    - name: Type check with ty
-      run: |
-        uvx ty check .
-      continue-on-error: true
+      - name: Type check with ty
+        run: uvx ty check .
+        continue-on-error: true
 
   yaml-lint:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        version: "latest"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
 
-    - name: Set up Python 3.12
-      run: uv python install 3.12
+      - name: Set up Python 3.12
+        run: uv python install 3.12
 
-    - name: Lint YAML files
-      run: |
-        uvx yamllint . || true
-      continue-on-error: true
+      - name: Lint YAML files
+        run: uvx yamllint . || true
+        continue-on-error: true
+
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Run tests
+        run: uv run pytest tests/ -v --ignore=tests/integration/
