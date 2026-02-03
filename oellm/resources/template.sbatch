@@ -137,7 +137,7 @@ do
                 lighteval accelerate \
                     "model_name=$model_path,trust_remote_code=True" \
                     "$LIGHT_TASK_ARG" \
-                    --custom-tasks lighteval.tasks.multilingual.tasks \
+                    --load-tasks-multilingual \
                     --output-dir "$RESULTS_SUBDIR" \
                     ${{LIMIT:+--max-samples $LIMIT}}
             ;;
