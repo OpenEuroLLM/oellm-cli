@@ -124,7 +124,7 @@ do
                         LIGHT_TASK_ARG="$LIGHT_TASK"
                     fi
                 else
-                    LIGHT_TASK_ARG="lighteval|${{LIGHT_TASK}}|$n_shot|0"
+                    LIGHT_TASK_ARG="${{LIGHT_TASK}}|$n_shot"
                 fi
             fi
 
