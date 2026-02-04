@@ -2,6 +2,7 @@ name: Build and push Apptainer images
 
 on:
   push:
+    branches: [main]
     paths:
       - 'apptainer/*.def'
       - '.github/workflows/build-and-push-apptainer.yml'
@@ -16,16 +17,20 @@ jobs:
   build-push:
     strategy:
       matrix:
-        image: [jureca, leonardo, lumi]
+        image: [slurm-ci, jureca, leonardo, lumi]
     name: Build & Publish SIF Artifact (${{ matrix.image }})
-    runs-on:
-      - runs-on=${{github.run_id}}/family=i7ie
+    runs-on: "runs-on=${{ github.run_id }}/family=i7ie.large/spot=false"
     permissions:
       contents: read
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: check disk space
+        run: |
+          echo "Disk info:"
+          df -h
 
       - name: Install Apptainer
         run: |
@@ -37,7 +42,7 @@ jobs:
 
       - name: Build SIF from definition file
         run: |
-          apptainer --verbose build --mksquashfs-args="-comp gzip -Xcompression-level 1" --fakeroot eval_env-${{ matrix.image }}.sif apptainer/${{ matrix.image }}.def
+          sudo apptainer --verbose build --mksquashfs-args="-comp gzip -Xcompression-level 1" eval_env-${{ matrix.image }}.sif apptainer/${{ matrix.image }}.def
 
       - name: Install Hugging Face Hub CLI
         run: pip install --upgrade "huggingface_hub"

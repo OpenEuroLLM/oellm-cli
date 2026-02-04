@@ -3,7 +3,7 @@ From: nvcr.io/nvidia/pytorch:25.06-py3
 
 %labels
     Author      oellm-cli
-    Description Apptainer image for JURECA JSC cluster
+    Description Apptainer image for CI integration tests
 
 %post
     # Install uv
@@ -40,7 +40,6 @@ From: nvcr.io/nvidia/pytorch:25.06-py3
     export UV_TOOL_BIN_DIR=/usr/local/bin
     export UV_TOOL_DIR=/opt/uv-tools
     export NLTK_DATA=/opt/nltk_data
-
 
 %runscript
     exec bash "$@"
