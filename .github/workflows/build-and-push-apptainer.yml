@@ -27,10 +27,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: check disk space
-        run: |
-          echo "Disk info:"
-          df -h
+      - name: Check disk space
+        run: df -h
 
       - name: Install Apptainer
         run: |
@@ -41,8 +39,12 @@ jobs:
           sudo apt-get install -y apptainer
 
       - name: Build SIF from definition file
+        env:
+          APPTAINER_CACHEDIR: /mnt/ephemeral/apptainer-cache
+          APPTAINER_TMPDIR: /mnt/ephemeral/apptainer-tmp
         run: |
-          sudo apptainer --verbose build --mksquashfs-args="-comp gzip -Xcompression-level 1" eval_env-${{ matrix.image }}.sif apptainer/${{ matrix.image }}.def
+          sudo mkdir -p $APPTAINER_CACHEDIR $APPTAINER_TMPDIR
+          sudo APPTAINER_CACHEDIR=$APPTAINER_CACHEDIR APPTAINER_TMPDIR=$APPTAINER_TMPDIR apptainer --verbose build --mksquashfs-args="-comp gzip -Xcompression-level 1" eval_env-${{ matrix.image }}.sif apptainer/${{ matrix.image }}.def
 
       - name: Install Hugging Face Hub CLI
         run: pip install --upgrade "huggingface_hub"
