@@ -377,6 +377,7 @@ def collect_results(
         verbose: Enable verbose logging
     """
     import json
+
     import yaml
 
     _setup_logging(verbose)
@@ -482,12 +483,14 @@ def collect_results(
             if performance is not None:
                 if check:
                     completed_jobs.add((model_name, group_name, n_shot))
-                rows.append({
-                    "model_name": model_name,
-                    "task": group_name,
-                    "n_shot": n_shot,
-                    "performance": performance,
-                })
+                rows.append(
+                    {
+                        "model_name": model_name,
+                        "task": group_name,
+                        "n_shot": n_shot,
+                        "performance": performance,
+                    }
+                )
                 # Skip per-task iteration when groups are present
                 continue
 
@@ -546,12 +549,14 @@ def collect_results(
                 if check:
                     completed_jobs.add((model_name, task_name, n_shot))
 
-                rows.append({
-                    "model_name": model_name,
-                    "task": task_name,
-                    "n_shot": n_shot,
-                    "performance": performance,
-                })
+                rows.append(
+                    {
+                        "model_name": model_name,
+                        "task": task_name,
+                        "n_shot": n_shot,
+                        "performance": performance,
+                    }
+                )
             else:
                 # Debug: log cases where we have a task but no performance metric
                 if verbose:
