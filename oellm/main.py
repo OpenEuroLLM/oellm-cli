@@ -18,7 +18,7 @@ from oellm.task_groups import (
     _lookup_dataset_specs_for_tasks,
 )
 from oellm.utils import (
-    _ensure_runtime_environment,
+    _ensure_singularity_image,
     _expand_local_model_paths,
     _filter_warnings,
     _load_cluster_env,
@@ -47,13 +47,11 @@ def schedule_evals(
     eval_csv_path: str | None = None,
     *,
     max_array_len: int = 128,
-    limit: int | None = None,
     verbose: bool = False,
     download_only: bool = False,
     dry_run: bool = False,
     skip_checks: bool = False,
     trust_remote_code: bool = True,
-    venv_path: str | None = None,
 ) -> None:
     """
     Schedule evaluation jobs for a given set of models, tasks, and number of shots.
@@ -77,29 +75,20 @@ def schedule_evals(
             Warning: exclusive argument. Cannot specify `models`, `tasks`, `task_groups`, or `n_shot` when `eval_csv_path` is provided.
         max_array_len: The maximum number of jobs to schedule to run concurrently.
             Warning: this is not the number of jobs in the array job. This is determined by the environment variable `QUEUE_LIMIT`.
-        limit: If set, limit the number of samples per task (useful for quick testing).
-            Passes --limit to lm_eval and --max_samples to lighteval.
         download_only: If True, only download the datasets and models and exit.
         dry_run: If True, generate the SLURM script but don't submit it to the scheduler.
         skip_checks: If True, skip container image, model validation, and dataset pre-download checks for faster execution.
         trust_remote_code: If True, trust remote code when downloading datasets. Default is True. Workflow might fail if set to False.
-        venv_path: Path to a Python virtual environment. If provided, evaluations run directly using
-            this venv instead of inside a Singularity/Apptainer container.
     """
     _setup_logging(verbose)
 
+    # Load cluster-specific environment variables (paths, etc.)
     _load_cluster_env()
 
-    use_venv = venv_path is not None
-
     if not skip_checks:
-        _ensure_runtime_environment(
-            use_venv=use_venv,
-            container_image=os.environ.get("EVAL_CONTAINER_IMAGE"),
-            venv_path=venv_path,
-        )
+        _ensure_singularity_image(os.environ.get("EVAL_CONTAINER_IMAGE"))  # type: ignore
     else:
-        logging.info("Skipping runtime environment check (--skip-checks enabled)")
+        logging.info("Skipping container image check (--skip-checks enabled)")
 
     if isinstance(models, str) and models is not None:
         models = [m.strip() for m in models.split(",") if m.strip()]  # type: ignore
@@ -200,6 +189,7 @@ def schedule_evals(
             "Skipping model path processing and validation (--skip-checks enabled)"
         )
 
+    # create csv
     df = pd.DataFrame(expanded_eval_jobs)
 
     if df.empty:
@@ -239,7 +229,7 @@ def schedule_evals(
         int(os.environ.get("QUEUE_LIMIT", 250)) - _num_jobs_in_queue()
     )
 
-    if remaining_queue_capacity <= 0 and not dry_run:
+    if remaining_queue_capacity <= 0:
         logging.warning("No remaining queue capacity. Not scheduling any jobs.")
         return None
 
@@ -312,8 +302,6 @@ def schedule_evals(
         log_dir=evals_dir / "slurm_logs",
         evals_dir=str(evals_dir / "results"),
         time_limit=time_limit,  # Dynamic time limit
-        limit=limit if limit else "",  # Sample limit for quick testing
-        venv_path=venv_path or "",
     )
 
     # substitute any $ENV_VAR occurrences
@@ -335,6 +323,7 @@ def schedule_evals(
         logging.info("To submit the job, run: sbatch " + str(sbatch_script_path))
         return
 
+    # Submit the job script to slurm by piping the script content to sbatch
     try:
         logging.info("Calling sbatch to launch the evaluations")
 
@@ -355,6 +344,7 @@ def schedule_evals(
         )
         logging.info("Job submitted successfully.")
         logging.info(result.stdout)
+        # Extract job ID from sbatch output for monitoring commands
         job_id_match = re.search(r"Submitted batch job (\d+)", result.stdout)
         if job_id_match:
             job_id = job_id_match.group(1)
