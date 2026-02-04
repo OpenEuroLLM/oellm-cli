@@ -6,34 +6,26 @@ From: rocm/pytorch:rocm6.4.1_ubuntu24.04_py3.12_pytorch_release_2.7.1
     Description Apptainer image for LUMI cluster
 
 %post
-    # Install uv
+    # Install uv into a global bin
     curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+
+    # Put uv-installed tool shims in a global bin too
     export UV_TOOL_BIN_DIR=/usr/local/bin
+    uv --version
+
+    uv pip install --system --break-system-packages lm-eval \
+        "transformers<=4.53.0" "datasets<4.0.0" wandb sentencepiece tiktoken accelerate
+
+    # Optional: keep tool envs under /opt to avoid $HOME
     export UV_TOOL_DIR=/opt/uv-tools
-
-    # lm-eval and dependencies (system Python)
-    uv pip install --system --break-system-packages \
-        lm-eval \
-        transformers \
-        "datasets<4.0.0" \
-        wandb \
-        sentencepiece \
-        tiktoken \
-        accelerate \
-        nltk
-
-    # lighteval as isolated tool (avoids dependency conflicts)
-    uv tool install --python 3.12 \
-        --with "langcodes[data]" \
-        --with "pillow" \
-        "lighteval[multilingual] @ git+https://github.com/huggingface/lighteval.git"
-
-    # Pre-load lighteval registry to trigger tinyBenchmarks data download at build time
-    /opt/uv-tools/lighteval/bin/python -c "from lighteval.tasks.registry import Registry; Registry.load_all_task_configs(load_multilingual=True)"
-
-    # NLTK data
+    uv tool install --python 3.12 "lighteval[multilingual] @ git+https://github.com/huggingface/lighteval.git@63424f4e795ecc577b90646381b374af3a627978"
+    uv pip install --system --break-system-packages nltk
     mkdir -p /opt/nltk_data
-    python -c "import nltk; nltk.download('punkt', download_dir='/opt/nltk_data'); nltk.download('punkt_tab', download_dir='/opt/nltk_data')"
+    python - <<'PY'
+import nltk
+nltk.download('punkt', download_dir='/opt/nltk_data')
+nltk.download('punkt_tab', download_dir='/opt/nltk_data')
+PY
 
 %environment
     export PATH=/usr/local/bin:$PATH
