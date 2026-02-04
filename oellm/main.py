@@ -378,7 +378,27 @@ def collect_results(
     """
     import json
 
+    import yaml
+
     _setup_logging(verbose)
+
+    task_groups_yaml = files("oellm.resources") / "task-groups.yaml"
+    with open(str(task_groups_yaml)) as _f:
+        _tg_cfg = yaml.safe_load(_f)
+    task_metrics = _tg_cfg.get("task_metrics", {})
+
+    def _resolve_metric(task_name: str, result_dict: dict) -> float | None:
+        """Return the preferred metric value for task_name from result_dict."""
+        preferred = task_metrics.get(task_name)
+        if preferred is not None:
+            val = result_dict.get(f"{preferred},none")
+            if val is None:
+                val = result_dict.get(preferred)
+            return val
+        for metric in ["acc,none", "acc", "accuracy", "f1", "exact_match"]:
+            if metric in result_dict:
+                return result_dict[metric]
+        return None
 
     results_path = Path(results_dir)
     if not results_path.exists():
@@ -459,12 +479,7 @@ def collect_results(
                         break
             if n_shot == "unknown" and global_n_shot is not None:
                 n_shot = global_n_shot
-            performance = group_results.get("acc,none")
-            if performance is None:
-                for metric in ["acc", "accuracy", "f1", "exact_match"]:
-                    if metric in group_results:
-                        performance = group_results[metric]
-                        break
+            performance = _resolve_metric(group_name, group_results)
             if performance is not None:
                 if check:
                     completed_jobs.add((model_name, group_name, n_shot))
@@ -526,14 +541,8 @@ def collect_results(
                 if n_shot == "unknown" and global_n_shot is not None:
                     n_shot = global_n_shot
 
-            # Get the primary metric (usually acc,none)
-            performance = task_results.get("acc,none")
-            if performance is None:
-                # Try other common metric names
-                for metric in ["acc", "accuracy", "f1", "exact_match"]:
-                    if metric in task_results:
-                        performance = task_results[metric]
-                        break
+            # Get the primary metric (usually acc, acc_norm)
+            performance = _resolve_metric(task_name, task_results)
 
             if performance is not None:
                 # Track completed job for check mode
