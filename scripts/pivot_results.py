@@ -50,7 +50,9 @@ def main() -> None:
 
     pivot = pivot.reset_index()
     pivot.to_csv(args.output, index=False)
-    print(f"Wrote {args.output}  ({len(pivot)} models × {len(pivot.columns) - 1} columns)")
+    print(
+        f"Wrote {args.output}  ({len(pivot)} models × {len(pivot.columns) - 1} columns)"
+    )
 
 
 if __name__ == "__main__":
