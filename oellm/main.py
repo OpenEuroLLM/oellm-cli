@@ -377,6 +377,7 @@ def collect_results(
         verbose: Enable verbose logging
     """
     import json
+
     import yaml
 
     _setup_logging(verbose)
