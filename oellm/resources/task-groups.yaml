@@ -1,3 +1,16 @@
+task_metrics:
+  mmlu: acc
+  copa: acc
+  lambada_openai: acc
+  openbookqa: acc_norm
+  winogrande: acc
+  arc_challenge: acc_norm
+  arc_easy: acc_norm
+  boolq: acc
+  commonsense_qa: acc
+  hellaswag: acc_norm
+  piqa: acc_norm
+
 task_groups:
   open-sci-0.01:
     description: "open-sci-ref 0.01 evals"
