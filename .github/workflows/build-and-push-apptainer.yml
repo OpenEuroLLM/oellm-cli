@@ -17,7 +17,7 @@ jobs:
   build-push:
     strategy:
       matrix:
-        image: [slurm-ci, jureca, leonardo, lumi]
+        image: [slurm-ci, jureca, leonardo, lumi, jupiter]
     name: Build & Publish SIF Artifact (${{ matrix.image }})
     runs-on: "runs-on=${{ github.run_id }}/family=i7ie.large/spot=false"
     permissions:
@@ -41,8 +41,12 @@ jobs:
           sudo apt-get install -y apptainer
 
       - name: Build SIF from definition file
+        env:
+          APPTAINER_CACHEDIR: /mnt/ephemeral/apptainer-cache
+          APPTAINER_TMPDIR: /mnt/ephemeral/apptainer-tmp
         run: |
-          sudo apptainer --verbose build --mksquashfs-args="-comp gzip -Xcompression-level 1" eval_env-${{ matrix.image }}.sif apptainer/${{ matrix.image }}.def
+          sudo mkdir -p $APPTAINER_CACHEDIR $APPTAINER_TMPDIR
+          sudo APPTAINER_CACHEDIR=$APPTAINER_CACHEDIR APPTAINER_TMPDIR=$APPTAINER_TMPDIR apptainer --verbose build --mksquashfs-args="-comp gzip -Xcompression-level 1" eval_env-${{ matrix.image }}.sif apptainer/${{ matrix.image }}.def
 
       - name: Install Hugging Face Hub CLI
         run: pip install --upgrade "huggingface_hub"
