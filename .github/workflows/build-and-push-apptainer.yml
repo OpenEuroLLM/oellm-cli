@@ -17,7 +17,7 @@ jobs:
   build-push:
     strategy:
       matrix:
-        image: [jureca, leonardo, lumi]
+        image: [jureca, leonardo, lumi, jupiter]
     name: Build & Publish SIF Artifact (${{ matrix.image }})
     runs-on: "runs-on=${{ github.run_id }}/family=i7ie.large/spot=false"
     permissions:
