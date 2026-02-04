@@ -14,3 +14,5 @@
 **/*.csv
 **/uv.lock
 **/task_map_cache.json
+*.sif
+results/
