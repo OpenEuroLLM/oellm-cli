@@ -112,6 +112,15 @@ def _load_cluster_env() -> None:
     resolved_cluster = {k: str(v).format_map(ctx) for k, v in cluster_cfg_raw.items()}
 
     final_env = {**resolved_shared, **resolved_cluster}
+    overridden = {
+        k: os.environ[k]
+        for k, v in final_env.items()
+        if k in os.environ and os.environ[k] != v
+    }
+    if overridden:
+        logging.info(
+            f"Using custom environment variables: {', '.join(f'{k}={v}' for k, v in overridden.items())}"
+        )
     for k, v in final_env.items():
         os.environ.setdefault(k, v)
 
