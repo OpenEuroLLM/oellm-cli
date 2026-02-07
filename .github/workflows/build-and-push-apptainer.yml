@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'apptainer/*.def'
+      - 'containers/*.def'
       - '.github/workflows/build-and-push-apptainer.yml'
   workflow_dispatch:
     inputs:
@@ -17,7 +17,12 @@ jobs:
   build-push:
     strategy:
       matrix:
-        image: [jureca, leonardo, lumi, jupiter]
+        include:
+          - image: jureca
+          - image: leonardo
+          - image: lumi
+          - image: jupiter
+            arch: arm64
     name: Build & Publish SIF Artifact (${{ matrix.image }})
     runs-on: "runs-on=${{ github.run_id }}/family=i7ie.large/spot=false"
     permissions:
@@ -38,13 +43,23 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y apptainer
 
+      - name: Set up QEMU for cross-arch builds
+        if: matrix.arch
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: ${{ matrix.arch }}
+
       - name: Build SIF from definition file
         env:
           APPTAINER_CACHEDIR: /mnt/ephemeral/apptainer-cache
           APPTAINER_TMPDIR: /mnt/ephemeral/apptainer-tmp
         run: |
           sudo mkdir -p $APPTAINER_CACHEDIR $APPTAINER_TMPDIR
-          sudo APPTAINER_CACHEDIR=$APPTAINER_CACHEDIR APPTAINER_TMPDIR=$APPTAINER_TMPDIR apptainer --verbose build --mksquashfs-args="-comp gzip -Xcompression-level 1" eval_env-${{ matrix.image }}.sif apptainer/${{ matrix.image }}.def
+          ARCH_FLAG=""
+          if [ -n "${{ matrix.arch }}" ]; then
+            ARCH_FLAG="--arch ${{ matrix.arch }}"
+          fi
+          sudo APPTAINER_CACHEDIR=$APPTAINER_CACHEDIR APPTAINER_TMPDIR=$APPTAINER_TMPDIR apptainer --verbose build $ARCH_FLAG --mksquashfs-args="-comp gzip -Xcompression-level 1" eval_env-${{ matrix.image }}.sif containers/${{ matrix.image }}.def
 
       - name: Install Hugging Face Hub CLI
         run: pip install --upgrade "huggingface_hub"
