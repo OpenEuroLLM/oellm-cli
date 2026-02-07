@@ -1,0 +1,188 @@
+name: SLURM Integration Test
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'oellm/**'
+      - 'tests/integration/**'
+      - '.github/workflows/slurm-integration.yml'
+
+jobs:
+  slurm-integration:
+    name: SLURM Integration (${{ matrix.mode }})
+    runs-on: "runs-on=${{ github.run_id }}/family=g4dn.xlarge/image=ubuntu24-gpu-x64"
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [container, venv]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check GPU availability
+        run: |
+          echo "Checking for NVIDIA GPU..."
+          nvidia-smi
+          echo "GPU check passed"
+          echo "Disk info:"
+          df -h
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            software-properties-common \
+            munge \
+            slurm-wlm \
+            slurm-wlm-basic-plugins \
+            libmunge-dev
+
+      - name: Install Apptainer (container mode)
+        if: matrix.mode == 'container'
+        run: |
+          sudo add-apt-repository -y ppa:apptainer/ppa
+          sudo apt-get update
+          sudo apt-get install -y apptainer
+
+      - name: Configure MUNGE
+        run: |
+          # Create munge key manually (create-munge-key not available on Ubuntu)
+          sudo dd if=/dev/urandom of=/etc/munge/munge.key bs=1 count=1024
+          sudo chown munge:munge /etc/munge/munge.key
+          sudo chmod 400 /etc/munge/munge.key
+          sudo systemctl start munge
+          sudo systemctl status munge
+
+      - name: Configure SLURM
+        run: |
+          HOSTNAME=$(hostname -s)
+
+          sudo mkdir -p /etc/slurm
+          sudo mkdir -p /var/spool/slurmd
+          sudo mkdir -p /var/spool/slurmctld
+          sudo mkdir -p /var/log/slurm
+
+          # Create slurm.conf with GPU support
+          sudo tee /etc/slurm/slurm.conf > /dev/null << EOF
+          ClusterName=ci
+          SlurmctldHost=${HOSTNAME}
+          MpiDefault=none
+          ProctrackType=proctrack/linuxproc
+          ReturnToService=2
+          SlurmctldPidFile=/var/run/slurmctld.pid
+          SlurmdPidFile=/var/run/slurmd.pid
+          SlurmdSpoolDir=/var/spool/slurmd
+          SlurmUser=root
+          StateSaveLocation=/var/spool/slurmctld
+          SwitchType=switch/none
+          TaskPlugin=task/none
+
+          # Scheduling
+          SchedulerType=sched/backfill
+          SelectType=select/cons_tres
+          SelectTypeParameters=CR_Core
+
+          # Logging
+          SlurmctldLogFile=/var/log/slurm/slurmctld.log
+          SlurmdLogFile=/var/log/slurm/slurmd.log
+
+          # GRES (GPU) configuration
+          GresTypes=gpu
+
+          # Node definition with GPU (use 15000 to account for system overhead on g4dn.xlarge)
+          NodeName=${HOSTNAME} CPUs=4 Gres=gpu:1 RealMemory=15000 State=UNKNOWN
+          PartitionName=gpu Nodes=${HOSTNAME} Default=YES MaxTime=INFINITE State=UP
+          EOF
+
+          # Create gres.conf for GPU
+          sudo tee /etc/slurm/gres.conf > /dev/null << EOF
+          NodeName=${HOSTNAME} Name=gpu File=/dev/nvidia0
+          EOF
+
+          # Set permissions
+          sudo chmod 644 /etc/slurm/slurm.conf
+          sudo chmod 644 /etc/slurm/gres.conf
+
+      - name: Start SLURM services
+        run: |
+          sudo slurmctld -D &
+          sleep 3
+          sudo slurmd -D &
+          sleep 3
+
+          # Wait for node to be ready
+          for i in {1..30}; do
+            if sinfo | grep -q "idle"; then
+              echo "SLURM node is ready"
+              break
+            fi
+            echo "Waiting for SLURM node to become idle... ($i/30)"
+            sleep 2
+          done
+
+          sinfo
+          scontrol show node
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Install oellm with dev dependencies
+        run: uv sync --extra dev
+
+      - name: Create swap file
+        run: |
+          sudo fallocate -l 16G /mnt/ephemeral/swapfile
+          sudo chmod 600 /mnt/ephemeral/swapfile
+          sudo mkswap /mnt/ephemeral/swapfile
+          sudo swapon /mnt/ephemeral/swapfile
+
+      - name: Set up test environment
+        run: |
+          EVAL_BASE_DIR="${GITHUB_WORKSPACE}/../oellm-test"
+          mkdir -p "$EVAL_BASE_DIR"
+          mkdir -p "$EVAL_BASE_DIR/hf_data/hub"
+          mkdir -p "$EVAL_BASE_DIR/hf_data/datasets"
+          mkdir -p "$EVAL_BASE_DIR/$USER"
+          # Export for subsequent steps
+          echo "EVAL_BASE_DIR=$EVAL_BASE_DIR" >> $GITHUB_ENV
+
+      - name: Create test venv (venv mode)
+        if: matrix.mode == 'venv'
+        run: |
+          uv venv --python 3.12 "$EVAL_BASE_DIR/.venv"
+          # lm-eval in venv (with datasets<4.0.0)
+          uv pip install --python "$EVAL_BASE_DIR/.venv/bin/python" \
+            lm-eval torch transformers accelerate "datasets<4.0.0"
+          # lighteval as isolated tool (avoids datasets version conflict)
+          UV_TOOL_DIR="$EVAL_BASE_DIR/.uv-tools" UV_TOOL_BIN_DIR="$EVAL_BASE_DIR/.venv/bin" \
+            uv tool install --python 3.12 \
+              --with "langcodes[data]" --with "pillow" \
+              "lighteval[multilingual] @ git+https://github.com/huggingface/lighteval.git"
+
+      - name: Run integration tests
+        run: uv run pytest tests/integration/test_slurm.py -v --tb=long --timeout=600 ${{ matrix.mode == 'venv' && '--use-venv' || '' }}
+
+      - name: Collect logs
+        if: always()
+        run: |
+          mkdir -p /tmp/slurm-logs
+          sudo cp -r /var/log/slurm/* /tmp/slurm-logs/ 2>/dev/null || true
+          sudo chmod -R 755 /tmp/slurm-logs 2>/dev/null || true
+          cp -r "$EVAL_BASE_DIR/runner" /tmp/slurm-logs/ 2>/dev/null || true
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: slurm-logs-${{ matrix.mode }}
+          path: /tmp/slurm-logs/
+          retention-days: 7

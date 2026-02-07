@@ -25,8 +25,37 @@ def get_console() -> Console:
     return _RICH_CONSOLE
 
 
-def _ensure_singularity_image(image_name: str) -> None:
+def _ensure_runtime_environment(
+    use_venv: bool, container_image: str | None, venv_path: str | None
+) -> None:
+    if use_venv:
+        _ensure_venv(venv_path)
+    else:
+        _ensure_singularity_image(container_image)
+
+
+def _ensure_venv(venv_path: str) -> None:
+    venv = Path(venv_path)
+    python_bin = venv / "bin" / "python"
+
+    if not python_bin.exists():
+        raise RuntimeError(
+            f"No valid Python virtual environment found at {venv_path}. "
+            f"Expected to find {python_bin}. "
+            f"Create one with: python -m venv {venv_path} && {python_bin} -m pip install lm-eval lighteval"
+        )
+
+    logging.info(f"Using Python virtual environment at {venv_path}")
+
+
+def _ensure_singularity_image(image_name: str | None) -> None:
     from huggingface_hub import hf_hub_download
+
+    if not image_name:
+        raise RuntimeError(
+            "No container image specified. Set EVAL_CONTAINER_IMAGE environment variable "
+            "or use --exec_mode=venv with a virtual environment."
+        )
 
     image_path = Path(os.getenv("EVAL_BASE_DIR")) / image_name
 
@@ -113,7 +142,7 @@ def _load_cluster_env() -> None:
 
     final_env = {**resolved_shared, **resolved_cluster}
     for k, v in final_env.items():
-        os.environ[k] = v
+        os.environ.setdefault(k, v)
 
 
 def _num_jobs_in_queue() -> int:
@@ -256,7 +285,7 @@ def _process_model_paths(models: Iterable[str]):
 def _pre_download_datasets_from_specs(
     specs: Iterable, trust_remote_code: bool = True
 ) -> None:
-    from datasets import load_dataset
+    from datasets import get_dataset_config_names, load_dataset
 
     specs_list = list(specs)
     if not specs_list:
@@ -272,11 +301,32 @@ def _pre_download_datasets_from_specs(
             label = f"{spec.repo_id}" + (f"/{spec.subset}" if spec.subset else "")
             status.update(f"Downloading '{label}' ({idx}/{len(specs_list)})")
 
-            load_dataset(
-                spec.repo_id,
-                name=spec.subset,
-                trust_remote_code=trust_remote_code,
-            )
+            try:
+                load_dataset(
+                    spec.repo_id,
+                    name=spec.subset,
+                    trust_remote_code=trust_remote_code,
+                )
+            except ValueError as e:
+                if "Config name is missing" in str(e) and spec.subset is None:
+                    configs = get_dataset_config_names(
+                        spec.repo_id, trust_remote_code=trust_remote_code
+                    )
+                    logging.info(
+                        f"Dataset '{spec.repo_id}' requires config. "
+                        f"Downloading all {len(configs)} configs."
+                    )
+                    for cfg in configs:
+                        status.update(
+                            f"Downloading '{spec.repo_id}/{cfg}' ({idx}/{len(specs_list)})"
+                        )
+                        load_dataset(
+                            spec.repo_id,
+                            name=cfg,
+                            trust_remote_code=trust_remote_code,
+                        )
+                    continue
+                raise
 
             logging.debug(f"Finished downloading dataset '{label}'.")
 
