@@ -16,13 +16,18 @@ From: nvcr.io/nvidia/pytorch:25.06-py3
     uv pip install --system --break-system-packages lm-eval \
         "transformers<=4.53.0" "datasets<4.0.0" wandb sentencepiece tiktoken accelerate
 
-    # Optional: keep tool envs under /opt to avoid $HOME
+    # lighteval as isolated tool (avoids dependency conflicts)
     export UV_TOOL_DIR=/opt/uv-tools
     # Install lighteval without [multilingual] extras first, then add multilingual deps
     # sudachipy (spacy[ja] dep) has no ARM64 wheel, so skip Japanese support
-    uv tool install --python 3.12 "lighteval @ git+https://github.com/huggingface/lighteval.git@63424f4e795ecc577b90646381b374af3a627978"
+    uv tool install --python 3.12 \
+        --with "pillow" \
+        "lighteval @ git+https://github.com/huggingface/lighteval.git"
     uv pip install --system --break-system-packages "spacy>=3.0.0,<4.0.0" jieba "underthesea>=6.0.0"
     uv pip install --system --break-system-packages nltk
+
+    # Pre-load lighteval registry to trigger tinyBenchmarks data download at build time
+    /opt/uv-tools/lighteval/bin/python -c "from lighteval.tasks.registry import Registry; Registry.load_all_task_configs(load_multilingual=False)"
     mkdir -p /opt/nltk_data
     python - <<'PY'
 import nltk

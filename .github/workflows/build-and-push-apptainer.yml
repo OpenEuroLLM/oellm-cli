@@ -18,6 +18,7 @@ jobs:
     strategy:
       matrix:
         include:
+          - image: slurm-ci
           - image: jureca
           - image: leonardo
           - image: lumi
@@ -32,8 +33,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Check disk space
-        run: df -h
+      - name: check disk space
+        run: |
+          echo "Disk info:"
+          df -h
 
       - name: Install Apptainer
         run: |
