@@ -18,7 +18,7 @@ from oellm.task_groups import (
     _lookup_dataset_specs_for_tasks,
 )
 from oellm.utils import (
-    _ensure_singularity_image,
+    _ensure_runtime_environment,
     _expand_local_model_paths,
     _filter_warnings,
     _load_cluster_env,
@@ -53,6 +53,7 @@ def schedule_evals(
     dry_run: bool = False,
     skip_checks: bool = False,
     trust_remote_code: bool = True,
+    venv_path: str | None = None,
 ) -> None:
     """
     Schedule evaluation jobs for a given set of models, tasks, and number of shots.
@@ -82,15 +83,23 @@ def schedule_evals(
         dry_run: If True, generate the SLURM script but don't submit it to the scheduler.
         skip_checks: If True, skip container image, model validation, and dataset pre-download checks for faster execution.
         trust_remote_code: If True, trust remote code when downloading datasets. Default is True. Workflow might fail if set to False.
+        venv_path: Path to a Python virtual environment. If provided, evaluations run directly using
+            this venv instead of inside a Singularity/Apptainer container.
     """
     _setup_logging(verbose)
 
     _load_cluster_env()
 
+    use_venv = venv_path is not None
+
     if not skip_checks:
-        _ensure_singularity_image(os.environ.get("EVAL_CONTAINER_IMAGE"))  # type: ignore
+        _ensure_runtime_environment(
+            use_venv=use_venv,
+            container_image=os.environ.get("EVAL_CONTAINER_IMAGE"),
+            venv_path=venv_path,
+        )
     else:
-        logging.info("Skipping container image check (--skip-checks enabled)")
+        logging.info("Skipping runtime environment check (--skip-checks enabled)")
 
     if isinstance(models, str) and models is not None:
         models = [m.strip() for m in models.split(",") if m.strip()]  # type: ignore
@@ -304,6 +313,7 @@ def schedule_evals(
         evals_dir=str(evals_dir / "results"),
         time_limit=time_limit,  # Dynamic time limit
         limit=limit if limit else "",  # Sample limit for quick testing
+        venv_path=venv_path or "",
     )
 
     # substitute any $ENV_VAR occurrences

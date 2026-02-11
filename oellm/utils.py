@@ -25,8 +25,37 @@ def get_console() -> Console:
     return _RICH_CONSOLE
 
 
-def _ensure_singularity_image(image_name: str) -> None:
+def _ensure_runtime_environment(
+    use_venv: bool, container_image: str | None, venv_path: str | None
+) -> None:
+    if use_venv:
+        _ensure_venv(venv_path)
+    else:
+        _ensure_singularity_image(container_image)
+
+
+def _ensure_venv(venv_path: str) -> None:
+    venv = Path(venv_path)
+    python_bin = venv / "bin" / "python"
+
+    if not python_bin.exists():
+        raise RuntimeError(
+            f"No valid Python virtual environment found at {venv_path}. "
+            f"Expected to find {python_bin}. "
+            f"Create one with: python -m venv {venv_path} && {python_bin} -m pip install lm-eval lighteval"
+        )
+
+    logging.info(f"Using Python virtual environment at {venv_path}")
+
+
+def _ensure_singularity_image(image_name: str | None) -> None:
     from huggingface_hub import hf_hub_download
+
+    if not image_name:
+        raise RuntimeError(
+            "No container image specified. Set EVAL_CONTAINER_IMAGE environment variable "
+            "or use --exec_mode=venv with a virtual environment."
+        )
 
     image_path = Path(os.getenv("EVAL_BASE_DIR")) / image_name
 

@@ -8,13 +8,17 @@ on:
       - 'oellm/**'
       - 'tests/integration/**'
       - '.github/workflows/slurm-integration.yml'
-      - 'apptainer/slurm-ci.def'
+      - 'containers/slurm-ci.def'
 
 jobs:
   slurm-integration:
-    name: SLURM + Apptainer Integration Test (GPU)
+    name: SLURM Integration (${{ matrix.mode }})
     runs-on: "runs-on=${{ github.run_id }}/family=g4dn.xlarge/image=ubuntu24-gpu-x64"
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [container, venv]
 
     steps:
       - name: Checkout repository
@@ -38,7 +42,8 @@ jobs:
             slurm-wlm-basic-plugins \
             libmunge-dev
 
-      - name: Install Apptainer
+      - name: Install Apptainer (container mode)
+        if: matrix.mode == 'container'
         run: |
           sudo add-apt-repository -y ppa:apptainer/ppa
           sudo apt-get update
@@ -151,8 +156,21 @@ jobs:
           # Export for subsequent steps
           echo "EVAL_BASE_DIR=$EVAL_BASE_DIR" >> $GITHUB_ENV
 
+      - name: Create test venv (venv mode)
+        if: matrix.mode == 'venv'
+        run: |
+          uv venv --python 3.12 "$EVAL_BASE_DIR/.venv"
+          # lm-eval in venv (with datasets<4.0.0)
+          uv pip install --python "$EVAL_BASE_DIR/.venv/bin/python" \
+            lm-eval torch transformers accelerate "datasets<4.0.0"
+          # lighteval as isolated tool (avoids datasets version conflict)
+          UV_TOOL_DIR="$EVAL_BASE_DIR/.uv-tools" UV_TOOL_BIN_DIR="$EVAL_BASE_DIR/.venv/bin" \
+            uv tool install --python 3.12 \
+              --with "langcodes[data]" --with "pillow" \
+              "lighteval[multilingual] @ git+https://github.com/huggingface/lighteval.git"
+
       - name: Run integration tests
-        run: uv run pytest tests/integration/test_slurm.py -v --tb=long --timeout=600
+        run: uv run pytest tests/integration/test_slurm.py -v --tb=long --timeout=600 ${{ matrix.mode == 'venv' && '--use-venv' || '' }}
 
       - name: Collect logs
         if: always()
@@ -166,6 +184,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: slurm-logs
+          name: slurm-logs-${{ matrix.mode }}
           path: /tmp/slurm-logs/
           retention-days: 7

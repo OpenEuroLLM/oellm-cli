@@ -13,13 +13,14 @@ CSV_PATH="{csv_path}"
 NUM_JOBS={num_jobs}
 TOTAL_EVALS={total_evals}
 LIMIT="{limit}"
+VENV_PATH="{venv_path}"
 
 # avoiding crashes due to compute nodes not having access to the internet
 export HF_HOME=$HF_HOME
 export HF_DATASETS_CACHE="$HF_HOME/datasets"
 export HF_HUB_OFFLINE=1
 
-# Path to the shared Singularity image that contains all runtime deps
+# Path to the shared Singularity image that contains all runtime deps (container mode)
 export EVAL_SIF_PATH="$EVAL_BASE_DIR/$EVAL_CONTAINER_IMAGE"
 
 echo "Running eval on $CSV_PATH with $NUM_JOBS array jobs distributing $TOTAL_EVALS evaluations"
@@ -92,18 +93,28 @@ do
 
     suite_normalized=$(echo "$eval_suite" | tr '[:upper:]' '[:lower:]')
 
-    case "$suite_normalized" in
-        lm_eval|lm-eval|lm-eval-harness)
+    # Helper function to run Python commands in the appropriate environment
+    run_python() {{
+        if [ -n "$VENV_PATH" ]; then
+            source "$VENV_PATH/bin/activate"
+            python "$@"
+        else
             singularity exec $SINGULARITY_ARGS \
                 --bind $BIND_PATHS \
                 $EVAL_SIF_PATH \
-                python -m lm_eval --model hf \
-                    --model_args pretrained="$model_path",trust_remote_code=True \
-                    --tasks "$task_path" \
-                    --num_fewshot "$n_shot" \
-                    --output_path "{evals_dir}/$(openssl rand -hex 5).json" \
-                    --trust_remote_code \
-                    ${{LIMIT:+--limit $LIMIT}}
+                python "$@"
+        fi
+    }}
+
+    case "$suite_normalized" in
+        lm_eval|lm-eval|lm-eval-harness)
+            run_python -m lm_eval --model hf \
+                --model_args pretrained="$model_path",trust_remote_code=True \
+                --tasks "$task_path" \
+                --num_fewshot "$n_shot" \
+                --output_path "{evals_dir}/$(openssl rand -hex 5).json" \
+                --trust_remote_code \
+                ${{LIMIT:+--limit $LIMIT}}
             ;;
         lighteval|light-eval)
             LIGHT_TASK="$task_path"
@@ -126,15 +137,25 @@ do
             RESULTS_SUBDIR="{evals_dir}/$(openssl rand -hex 5)"
             mkdir -p "$RESULTS_SUBDIR"
 
-            singularity exec $SINGULARITY_ARGS \
-                --bind $BIND_PATHS \
-                $EVAL_SIF_PATH \
+            if [ -n "$VENV_PATH" ]; then
+                source "$VENV_PATH/bin/activate"
                 lighteval accelerate \
                     "model_name=$model_path,trust_remote_code=True" \
                     "$LIGHT_TASK_ARG" \
                     --load-tasks-multilingual \
                     --output-dir "$RESULTS_SUBDIR" \
                     ${{LIMIT:+--max-samples $LIMIT}}
+            else
+                singularity exec $SINGULARITY_ARGS \
+                    --bind $BIND_PATHS \
+                    $EVAL_SIF_PATH \
+                    lighteval accelerate \
+                        "model_name=$model_path,trust_remote_code=True" \
+                        "$LIGHT_TASK_ARG" \
+                        --load-tasks-multilingual \
+                        --output-dir "$RESULTS_SUBDIR" \
+                        ${{LIMIT:+--max-samples $LIMIT}}
+            fi
             ;;
         *)
             echo "[warning] Unknown evaluation suite '$eval_suite'. Skipping."

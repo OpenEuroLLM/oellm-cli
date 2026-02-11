@@ -62,7 +62,11 @@ def wait_for_slurm_jobs(timeout: int = 600, poll_interval: int = 10) -> bool:
 
 
 def run_schedule_eval(
-    task_groups: str, limit: int = 5, dry_run: bool = False, skip_checks: bool = False
+    task_groups: str,
+    limit: int = 5,
+    dry_run: bool = False,
+    skip_checks: bool = False,
+    venv_path: str | None = None,
 ):
     cmd = [
         "uv",
@@ -76,6 +80,8 @@ def run_schedule_eval(
         "--limit",
         str(limit),
     ]
+    if venv_path:
+        cmd.extend(["--venv_path", venv_path])
     if dry_run:
         cmd.extend(["--dry_run", "true"])
     if skip_checks:
@@ -85,7 +91,11 @@ def run_schedule_eval(
 
 
 def run_schedule_eval_with_csv(
-    csv_path: str, limit: int = 1, dry_run: bool = False, skip_checks: bool = False
+    csv_path: str,
+    limit: int = 1,
+    dry_run: bool = False,
+    skip_checks: bool = False,
+    venv_path: str | None = None,
 ):
     cmd = [
         "uv",
@@ -97,6 +107,8 @@ def run_schedule_eval_with_csv(
         "--limit",
         str(limit),
     ]
+    if venv_path:
+        cmd.extend(["--venv_path", venv_path])
     if dry_run:
         cmd.extend(["--dry_run", "true"])
     if skip_checks:
@@ -117,14 +129,18 @@ class TestSlurmAvailability:
 @pytest.mark.usefixtures("slurm_available")
 class TestScheduleEvalDryRun:
     @pytest.fixture(autouse=True)
-    def setup(self, slurm_env):
+    def setup(self, slurm_env, venv_path):
         all_task_groups = ",".join(get_all_task_group_names())
 
         os.environ["SINGULARITY_ARGS"] = ""
         os.environ["GPUS_PER_NODE"] = "0"
 
         result = run_schedule_eval(
-            all_task_groups, limit=1, dry_run=True, skip_checks=True
+            all_task_groups,
+            limit=1,
+            dry_run=True,
+            skip_checks=True,
+            venv_path=venv_path,
         )
 
         assert result.returncode == 0, (
@@ -145,6 +161,7 @@ class TestScheduleEvalDryRun:
 
         self.sbatch_path = self.eval_dir / "submit_evals.sbatch"
         self.csv_path = self.eval_dir / "jobs.csv"
+        self.venv_path = venv_path
 
     @pytest.mark.parametrize(
         "pattern,description",
@@ -155,16 +172,27 @@ class TestScheduleEvalDryRun:
             (r"#SBATCH --partition=", "partition"),
             (r"#SBATCH --array=", "array"),
             (r"CSV_PATH=", "CSV_PATH"),
-            (r"singularity exec", "singularity-exec"),
             (r"lm_eval", "lm_eval"),
             (r"LIMIT=", "LIMIT-var"),
             (r"\$\{LIMIT:\+--limit \$LIMIT\}", "LIMIT-expansion"),
+            (r"VENV_PATH=", "VENV_PATH-var"),
         ],
         ids=lambda x: x[1],
     )
     def test_sbatch_contains(self, pattern, description):
         content = self.sbatch_path.read_text()
         assert re.search(pattern, content), f"sbatch missing {description}"
+
+    def test_sbatch_execution_mode_patterns(self):
+        content = self.sbatch_path.read_text()
+        if self.venv_path:
+            assert self.venv_path in content, (
+                "venv mode should include venv_path in script"
+            )
+        else:
+            assert re.search(r"singularity exec", content), (
+                "container mode should use singularity exec"
+            )
 
     def test_sbatch_bash_syntax_valid(self):
         result = subprocess.run(
@@ -225,11 +253,14 @@ def _first_task_id(val):
 @pytest.mark.usefixtures("slurm_available")
 class TestFullEvaluationPipeline:
     @pytest.mark.parametrize("task_info", get_first_task_per_group(), ids=_first_task_id)
-    def test_task_group_evaluation(self, slurm_env, task_info):
+    def test_task_group_evaluation(self, slurm_env, task_info, venv_path):
         group_name, task_name, n_shot, suite = task_info
 
+        mode_desc = "venv" if venv_path else "container"
         print(f"\n{'=' * 60}")
-        print(f"Testing: {group_name} -> {task_name} (n_shot={n_shot}, suite={suite})")
+        print(
+            f"Testing: {group_name} -> {task_name} (n_shot={n_shot}, suite={suite}, mode={mode_desc})"
+        )
         print(f"{'=' * 60}")
 
         with tempfile.NamedTemporaryFile(
@@ -242,7 +273,9 @@ class TestFullEvaluationPipeline:
             )
             csv_path = csv_file.name
 
-        result = run_schedule_eval_with_csv(csv_path, limit=1, dry_run=False)
+        result = run_schedule_eval_with_csv(
+            csv_path, limit=1, dry_run=False, venv_path=venv_path
+        )
         os.unlink(csv_path)
 
         if result.returncode != 0:
