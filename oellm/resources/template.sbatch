@@ -16,11 +16,6 @@ LIMIT="{limit}"
 
 # avoiding crashes due to compute nodes not having access to the internet
 export HF_HOME=$HF_HOME
-export HF_HUB_CACHE="$HF_HOME/hub"
-export HF_XET_CACHE="$HF_HOME/xet"
-export HF_ASSETS_CACHE="$HF_HOME/assets"
-export HUGGINGFACE_HUB_CACHE="$HF_HOME/hub"
-export HUGGINGFACE_ASSETS_CACHE="$HF_HOME/assets"
 export HF_DATASETS_CACHE="$HF_HOME/datasets"
 export HF_HUB_OFFLINE=1
 
@@ -81,7 +76,7 @@ do
 
     # Build bind paths: always mount the shared eval directory, and additionally
     # bind the directory that contains the model checkpoint when the path exists
-    BIND_PATHS="$EVAL_BASE_DIR:$EVAL_BASE_DIR"
+    BIND_PATHS="$EVAL_BASE_DIR:$EVAL_BASE_DIR,$HF_HOME:$HF_HOME,$HF_DATASETS_CACHE:$HF_DATASETS_CACHE"
 
     if [ -e "$model_path" ]; then
         # If the model_path is a file, bind its parent directory; otherwise bind the dir itself
