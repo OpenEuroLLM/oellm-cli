@@ -1,5 +1,5 @@
 Bootstrap: docker
-From: nvcr.io/nvidia/pytorch:25.06-py3
+From: nvcr.io/nvidia/pytorch:25.10-py3
 
 %labels
     Author      oellm-cli
