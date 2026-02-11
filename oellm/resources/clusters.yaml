@@ -12,7 +12,7 @@ leonardo:
   hostname_pattern: "*.leonardo.local"  # use this regexp to automatically assign environment variables corresponding to this YAML
   EVAL_BASE_DIR: "/leonardo_work/AIFAC_L01_028/oellm-cli-shared-evals"
   PARTITION: "boost_usr_prod"  # default partition to use
-  ACCOUNT: "AIFAC_L01_028"  # default account to use
+  ACCOUNT: "OELLM_prod2026"  # default account to use
   QUEUE_LIMIT: 1000  # maximum number of jobs that can be submitted as job/array, used to send only jobs that respects QOS
   EVAL_CONTAINER_IMAGE: "eval_env-leonardo.sif"  # name of the container image that is pulled which is built automatically with Github actions
   SINGULARITY_ARGS: "--nv"
