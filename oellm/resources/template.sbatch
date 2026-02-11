@@ -142,7 +142,6 @@ do
             RESULTS_SUBDIR="{evals_dir}/$(openssl rand -hex 5)"
             mkdir -p "$RESULTS_SUBDIR"
 
-            # lighteval needs special handling for venv mode
             if [ -n "$VENV_PATH" ]; then
                 source "$VENV_PATH/bin/activate"
                 lighteval accelerate \

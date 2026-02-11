@@ -8,6 +8,7 @@ on:
       - 'oellm/**'
       - 'tests/integration/**'
       - '.github/workflows/slurm-integration.yml'
+      - 'containers/slurm-ci.def'
 
 jobs:
   slurm-integration:
