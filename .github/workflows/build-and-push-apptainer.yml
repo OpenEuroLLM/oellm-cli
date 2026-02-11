@@ -16,6 +16,7 @@ on:
 jobs:
   build-push:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - image: slurm-ci
@@ -26,6 +27,7 @@ jobs:
             arch: arm64
     name: Build & Publish SIF Artifact (${{ matrix.image }})
     runs-on: "runs-on=${{ github.run_id }}/family=i7ie.large/spot=false"
+    timeout-minutes: 30
     permissions:
       contents: read
 
