@@ -6,6 +6,9 @@ resources:
     - cloud: lambda
       accelerators: A6000:1
       disk_size: 200
+    - cloud: lambda
+      accelerators: A100:1
+      disk_size: 200
 
 envs:
   TEST_MODE: null

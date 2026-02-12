@@ -1,8 +1,13 @@
 resources:
-  cloud: lambda
-  cpus: 8+
-  disk_size: 200
-  accelerators: A10:1
+  any_of:
+  - cloud: lambda
+    accelerators: A10:1
+    disk_size: 200
+    cpus: 8+
+  - cloud: lambda
+    accelerators: A6000:1
+    disk_size: 200
+    cpus: 8+
 
 envs:
   IMAGE_NAME: null
