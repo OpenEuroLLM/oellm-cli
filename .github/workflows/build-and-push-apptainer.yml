@@ -79,7 +79,7 @@ jobs:
           - image: leonardo
           - image: lumi
           - image: jupiter
-            sky_config: build-apptainer-arm64.yaml
+            arch: arm64
     name: Build & Publish SIF Artifact (${{ matrix.image }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -108,6 +108,8 @@ jobs:
         run: |
           sky launch -y --down \
             -c build-${{ matrix.image }}-${{ github.run_id }} \
+            --retry-until-up \
             --env IMAGE_NAME=${{ matrix.image }} \
+            --env ARCH="${{ matrix.arch }}" \
             --env HF_TOKEN=${{ secrets.HF_TOKEN }} \
-            .github/sky/${{ matrix.sky_config || 'build-apptainer.yaml' }}
+            .github/sky/build-apptainer.yaml

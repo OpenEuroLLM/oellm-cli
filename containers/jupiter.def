@@ -22,6 +22,7 @@ From: nvcr.io/nvidia/pytorch:25.06-py3
     # sudachipy (spacy[ja] dep) has no ARM64 wheel, so skip Japanese support
     uv tool install --python 3.12 \
         --with "pillow" \
+        --with "torch<2.9" \
         "lighteval @ git+https://github.com/huggingface/lighteval.git"
     uv pip install --system --break-system-packages "spacy>=3.0.0,<4.0.0" jieba "underthesea>=6.0.0"
     uv pip install --system --break-system-packages nltk
