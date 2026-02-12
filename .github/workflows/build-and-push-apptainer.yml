@@ -47,4 +47,4 @@ jobs:
             --env IMAGE_NAME=${{ matrix.image }} \
             --env ARCH="${{ matrix.arch }}" \
             --env HF_TOKEN=${{ secrets.HF_TOKEN }} \
-            sky/build-apptainer.yaml
+            .github/sky/build-apptainer.yaml

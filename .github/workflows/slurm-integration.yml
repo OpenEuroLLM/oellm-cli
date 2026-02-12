@@ -9,7 +9,7 @@ on:
       - 'tests/integration/**'
       - '.github/workflows/slurm-integration.yml'
       - 'containers/slurm-ci.def'
-      - 'sky/slurm-integration.yaml'
+      - '.github/sky/slurm-integration.yaml'
 
 jobs:
   slurm-integration:
@@ -35,7 +35,7 @@ jobs:
           sky launch -y \
             -c slurm-${{ matrix.mode }}-${{ github.run_id }} \
             --env TEST_MODE=${{ matrix.mode }} \
-            sky/slurm-integration.yaml
+            .github/sky/slurm-integration.yaml
 
       - name: Collect logs
         if: always()
