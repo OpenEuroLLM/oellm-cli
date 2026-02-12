@@ -11,8 +11,63 @@ on:
       - 'containers/slurm-ci.def'
       - '.github/sky/slurm-integration.yaml'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  setup-lambda:
+    name: Register Lambda SSH Key
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup SkyPilot
+        uses: ./.github/actions/setup-skypilot
+        with:
+          lambda_api_key: ${{ secrets.LAMBDA_API_KEY }}
+
+      - name: Generate and register SSH key on Lambda
+        env:
+          LAMBDA_API_KEY: ${{ secrets.LAMBDA_API_KEY }}
+        run: |
+          ssh-keygen -t rsa -b 4096 -f /tmp/sky-key -N ""
+
+          KEY_ID=$(curl -s -H "Authorization: Bearer $LAMBDA_API_KEY" \
+            https://cloud.lambdalabs.com/api/v1/ssh-keys | \
+            python3 -c "
+          import sys, json
+          for k in json.load(sys.stdin).get('data', []):
+              if k['name'] == 'sky-key':
+                  print(k['id'])
+                  break
+          " 2>/dev/null || true)
+
+          if [ -n "$KEY_ID" ]; then
+            curl -s -X DELETE \
+              -H "Authorization: Bearer $LAMBDA_API_KEY" \
+              "https://cloud.lambdalabs.com/api/v1/ssh-keys/$KEY_ID"
+            sleep 2
+          fi
+
+          curl -sf -X POST \
+            -H "Authorization: Bearer $LAMBDA_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{\"name\": \"sky-key\", \"public_key\": \"$(cat /tmp/sky-key.pub)\"}" \
+            https://cloud.lambdalabs.com/api/v1/ssh-keys
+
+      - name: Upload SSH key
+        uses: actions/upload-artifact@v4
+        with:
+          name: sky-ssh-key
+          path: |
+            /tmp/sky-key
+            /tmp/sky-key.pub
+          retention-days: 1
+
   slurm-integration:
+    needs: setup-lambda
     name: SLURM Integration (${{ matrix.mode }})
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -29,6 +84,19 @@ jobs:
         uses: ./.github/actions/setup-skypilot
         with:
           lambda_api_key: ${{ secrets.LAMBDA_API_KEY }}
+
+      - name: Restore SSH key
+        uses: actions/download-artifact@v4
+        with:
+          name: sky-ssh-key
+          path: /tmp/sky-ssh-key/
+
+      - name: Install SSH key for SkyPilot
+        run: |
+          mkdir -p ~/.ssh
+          cp /tmp/sky-ssh-key/sky-key ~/.ssh/sky-key
+          cp /tmp/sky-ssh-key/sky-key.pub ~/.ssh/sky-key.pub
+          chmod 600 ~/.ssh/sky-key
 
       - name: Run SLURM integration test on Lambda
         run: |
