@@ -110,7 +110,7 @@ jobs:
         run: |
           CLUSTER=slurm-${{ matrix.mode }}-${{ github.run_id }}
           mkdir -p /tmp/slurm-logs
-          sky rsync-down $CLUSTER /tmp/slurm-logs/ /tmp/slurm-logs/ || true
+          rsync -az $CLUSTER:/tmp/slurm-logs/ /tmp/slurm-logs/ || true
 
       - name: Teardown Lambda instance
         if: always()

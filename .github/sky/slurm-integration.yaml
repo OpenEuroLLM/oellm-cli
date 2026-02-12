@@ -24,13 +24,13 @@ setup: |
   fi
 
   curl -LsSf https://astral.sh/uv/install.sh | sh
-  source $HOME/.local/bin/env
+  export PATH="$HOME/.local/bin:$PATH"
   uv python install 3.12
   uv sync --extra dev
 
 run: |
   set -e
-  source $HOME/.local/bin/env
+  export PATH="$HOME/.local/bin:$PATH"
 
   # --- Configure MUNGE ---
   sudo dd if=/dev/urandom of=/etc/munge/munge.key bs=1 count=1024
@@ -127,10 +127,13 @@ run: |
   # --- Run integration tests ---
   VENV_FLAG=""
   if [ "$TEST_MODE" = "venv" ]; then VENV_FLAG="--use-venv"; fi
-  uv run pytest tests/integration/test_slurm.py -v --tb=long --timeout=600 $VENV_FLAG
+  TEST_EXIT=0
+  uv run pytest tests/integration/test_slurm.py -v --tb=long --timeout=600 $VENV_FLAG || TEST_EXIT=$?
 
-  # --- Collect logs for rsync ---
+  # --- Collect logs for rsync (runs even on test failure) ---
   mkdir -p /tmp/slurm-logs
   sudo cp -r /var/log/slurm/* /tmp/slurm-logs/ 2>/dev/null || true
   sudo chmod -R 755 /tmp/slurm-logs 2>/dev/null || true
   cp -r "$EVAL_BASE_DIR/runner" /tmp/slurm-logs/ 2>/dev/null || true
+
+  exit $TEST_EXIT
