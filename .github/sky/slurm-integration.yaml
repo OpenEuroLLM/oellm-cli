@@ -89,9 +89,9 @@ run: |
   sudo chmod 644 /etc/slurm/gres.conf
 
   # --- Start SLURM services ---
-  sudo slurmctld -D &
+  sudo slurmctld -D >/dev/null 2>&1 &
   sleep 3
-  sudo slurmd -D &
+  sudo slurmd -D >/dev/null 2>&1 &
   sleep 3
 
   for i in {1..30}; do
