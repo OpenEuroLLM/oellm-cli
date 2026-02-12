@@ -96,6 +96,7 @@ jobs:
         run: |
           sky launch -y \
             -c slurm-${{ matrix.mode }}-${{ github.run_id }} \
+            --retry-until-up \
             --env TEST_MODE=${{ matrix.mode }} \
             .github/sky/slurm-integration.yaml
 
