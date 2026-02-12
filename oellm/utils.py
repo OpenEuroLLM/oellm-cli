@@ -120,7 +120,13 @@ def _load_cluster_env() -> None:
         if name == "shared":
             continue
         pattern = cfg.get("hostname_pattern")
-        if isinstance(pattern, str) and fnmatch.fnmatch(hostname, pattern):
+        if isinstance(pattern, str):
+            patterns = [pattern]
+        elif isinstance(pattern, list):
+            patterns = pattern
+        else:
+            continue
+        if any(fnmatch.fnmatch(hostname, p) for p in patterns):
             cluster_cfg_raw = dict(cfg)
             break
     if cluster_cfg_raw is None:

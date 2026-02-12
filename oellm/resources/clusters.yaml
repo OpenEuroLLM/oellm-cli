@@ -42,8 +42,10 @@ lumi:
   EVAL_CONTAINER_IMAGE: "eval_env-lumi.sif"
   SINGULARITY_ARGS: "--rocm"
 
-ci:
-  hostname_pattern: "ip-*"
+ci: # lambda labs
+  hostname_pattern:
+    - "ip-*"
+    - "[0-9]*-[0-9]*-[0-9]*-[0-9]*"
   EVAL_BASE_DIR: "/tmp/oellm-test"
   PARTITION: "gpu"
   ACCOUNT: "test"

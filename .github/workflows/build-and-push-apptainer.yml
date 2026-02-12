@@ -13,8 +13,63 @@ on:
         required: false
         type: string
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  setup-lambda:
+    name: Register Lambda SSH Key
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      sky-key: ${{ steps.gen.outputs.sky-key }}
+      sky-key-pub: ${{ steps.gen.outputs.sky-key-pub }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup SkyPilot
+        uses: ./.github/actions/setup-skypilot
+        with:
+          lambda_api_key: ${{ secrets.LAMBDA_API_KEY }}
+
+      - name: Generate and register SSH key on Lambda
+        id: gen
+        env:
+          LAMBDA_API_KEY: ${{ secrets.LAMBDA_API_KEY }}
+        run: |
+          ssh-keygen -t rsa -b 4096 -f /tmp/sky-key -N ""
+
+          KEY_ID=$(curl -s -H "Authorization: Bearer $LAMBDA_API_KEY" \
+            https://cloud.lambdalabs.com/api/v1/ssh-keys | \
+            python3 -c "
+          import sys, json
+          for k in json.load(sys.stdin).get('data', []):
+              if k['name'] == 'sky-key':
+                  print(k['id'])
+                  break
+          " 2>/dev/null || true)
+
+          if [ -n "$KEY_ID" ]; then
+            curl -s -X DELETE \
+              -H "Authorization: Bearer $LAMBDA_API_KEY" \
+              "https://cloud.lambdalabs.com/api/v1/ssh-keys/$KEY_ID"
+            sleep 2
+          fi
+
+          curl -sf -X POST \
+            -H "Authorization: Bearer $LAMBDA_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{\"name\": \"sky-key\", \"public_key\": \"$(cat /tmp/sky-key.pub)\"}" \
+            https://cloud.lambdalabs.com/api/v1/ssh-keys
+
+          echo "sky-key=$(base64 -w0 /tmp/sky-key)" >> "$GITHUB_OUTPUT"
+          echo "sky-key-pub=$(base64 -w0 /tmp/sky-key.pub)" >> "$GITHUB_OUTPUT"
+
   build-push:
+    needs: setup-lambda
     strategy:
       fail-fast: false
       matrix:
@@ -26,8 +81,8 @@ jobs:
           - image: jupiter
             arch: arm64
     name: Build & Publish SIF Artifact (${{ matrix.image }})
-    runs-on: "runs-on=${{ github.run_id }}/family=i7ie.large/spot=false"
-    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: read
 
@@ -35,52 +90,26 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: check disk space
+      - name: Install SSH key for SkyPilot
         run: |
-          echo "Disk info:"
-          df -h
+          echo "::add-mask::${{ needs.setup-lambda.outputs.sky-key }}"
+          echo "::add-mask::${{ needs.setup-lambda.outputs.sky-key-pub }}"
+          mkdir -p ~/.ssh
+          echo "${{ needs.setup-lambda.outputs.sky-key }}" | base64 -d > ~/.ssh/sky-key
+          echo "${{ needs.setup-lambda.outputs.sky-key-pub }}" | base64 -d > ~/.ssh/sky-key.pub
+          chmod 600 ~/.ssh/sky-key
 
-      - name: Install Apptainer
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y software-properties-common
-          sudo add-apt-repository -y ppa:apptainer/ppa
-          sudo apt-get update
-          sudo apt-get install -y apptainer
-
-      - name: Set up QEMU for cross-arch builds
-        if: matrix.arch
-        uses: docker/setup-qemu-action@v3
+      - name: Setup SkyPilot
+        uses: ./.github/actions/setup-skypilot
         with:
-          platforms: ${{ matrix.arch }}
+          lambda_api_key: ${{ secrets.LAMBDA_API_KEY }}
 
-      - name: Build SIF from definition file
-        env:
-          APPTAINER_CACHEDIR: /mnt/ephemeral/apptainer-cache
-          APPTAINER_TMPDIR: /mnt/ephemeral/apptainer-tmp
+      - name: Build on Lambda Labs
         run: |
-          sudo mkdir -p $APPTAINER_CACHEDIR $APPTAINER_TMPDIR
-          ARCH_FLAG=""
-          if [ -n "${{ matrix.arch }}" ]; then
-            ARCH_FLAG="--arch ${{ matrix.arch }}"
-          fi
-          sudo APPTAINER_CACHEDIR=$APPTAINER_CACHEDIR APPTAINER_TMPDIR=$APPTAINER_TMPDIR apptainer --verbose build $ARCH_FLAG --mksquashfs-args="-comp gzip -Xcompression-level 1" eval_env-${{ matrix.image }}.sif containers/${{ matrix.image }}.def
-
-      - name: Install Hugging Face Hub CLI
-        run: pip install --upgrade "huggingface_hub"
-
-      - name: Login to Hugging Face Hub
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: hf auth login --token "$HF_TOKEN"
-
-      - name: Upload SIF to Hugging Face Hub
-        env:
-          HF_REPO: openeurollm/evaluation_singularity_images
-        run: |
-          hf upload \
-            "$HF_REPO" \
-            eval_env-${{ matrix.image }}.sif \
-            eval_env-${{ matrix.image }}.sif \
-            --repo-type dataset \
-            --commit-message "[chore] update ${{ matrix.image }} image"
+          sky launch -y --down \
+            -c build-${{ matrix.image }}-${{ github.run_id }} \
+            --retry-until-up \
+            --env IMAGE_NAME=${{ matrix.image }} \
+            --env ARCH="${{ matrix.arch }}" \
+            --env HF_TOKEN=${{ secrets.HF_TOKEN }} \
+            .github/sky/build-apptainer.yaml

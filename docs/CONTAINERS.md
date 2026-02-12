@@ -7,9 +7,11 @@ Apptainer containers are built automatically via GitHub Actions and stored on Hu
 ## How It Works
 
 1. Definition files live in `containers/<cluster>.def`
-2. On push to `main` (when `.def` files change), GitHub Actions builds all containers on [runs-on](https://runs-on.com/) AWS EC2 runners
+2. On push to `main` (when `.def` files change), GitHub Actions provisions [Lambda Labs](https://lambdalabs.com/) GPU instances via [SkyPilot](https://skypilot.readthedocs.io/) and builds all containers in parallel
 3. Built `.sif` images are uploaded to HuggingFace Hub
 4. Clusters pull the image specified in `oellm/resources/clusters.yaml` via `EVAL_CONTAINER_IMAGE`
+
+Images are compressed with zstd (level 3) via mksquashfs for a good balance of size and build speed.
 
 ## Adding a New Cluster
 
