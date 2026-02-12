@@ -29,6 +29,7 @@ setup: |
   uv sync --extra dev
 
 run: |
+  set -e
   source $HOME/.local/bin/env
 
   # --- Configure MUNGE ---

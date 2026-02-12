@@ -22,12 +22,17 @@ setup: |
   fi
 
 run: |
+  set -e
+  export PATH=$HOME/.local/bin:$PATH
   ARCH_FLAG=""
   if [ -n "$ARCH" ]; then ARCH_FLAG="--arch $ARCH"; fi
   sudo apptainer --verbose build $ARCH_FLAG \
     --mksquashfs-args="-comp gzip -Xcompression-level 1" \
     eval_env-${IMAGE_NAME}.sif containers/${IMAGE_NAME}.def
-  huggingface-cli login --token "$HF_TOKEN"
-  huggingface-cli upload openeurollm/evaluation_singularity_images \
-    eval_env-${IMAGE_NAME}.sif eval_env-${IMAGE_NAME}.sif \
-    --repo-type dataset --commit-message "[chore] update ${IMAGE_NAME} image"
+  hf auth login --token "$HF_TOKEN"
+  hf upload \
+    openeurollm/evaluation_singularity_images \
+    eval_env-${IMAGE_NAME}.sif \
+    eval_env-${IMAGE_NAME}.sif \
+    --repo-type dataset \
+    --commit-message "[chore] update ${IMAGE_NAME} image"
