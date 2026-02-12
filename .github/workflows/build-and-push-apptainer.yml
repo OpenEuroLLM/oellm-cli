@@ -79,7 +79,7 @@ jobs:
           - image: leonardo
           - image: lumi
           - image: jupiter
-            sky_config: build-apptainer-arm64.yaml
+            arch: arm64
     name: Build & Publish SIF Artifact (${{ matrix.image }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -90,22 +90,25 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup SkyPilot
-        uses: ./.github/actions/setup-skypilot
-        with:
-          lambda_api_key: ${{ secrets.LAMBDA_API_KEY }}
-
       - name: Install SSH key for SkyPilot
         run: |
+          echo "::add-mask::${{ needs.setup-lambda.outputs.sky-key }}"
+          echo "::add-mask::${{ needs.setup-lambda.outputs.sky-key-pub }}"
           mkdir -p ~/.ssh
           echo "${{ needs.setup-lambda.outputs.sky-key }}" | base64 -d > ~/.ssh/sky-key
           echo "${{ needs.setup-lambda.outputs.sky-key-pub }}" | base64 -d > ~/.ssh/sky-key.pub
           chmod 600 ~/.ssh/sky-key
+
+      - name: Setup SkyPilot
+        uses: ./.github/actions/setup-skypilot
+        with:
+          lambda_api_key: ${{ secrets.LAMBDA_API_KEY }}
 
       - name: Build on Lambda Labs
         run: |
           sky launch -y --down \
             -c build-${{ matrix.image }}-${{ github.run_id }} \
             --env IMAGE_NAME=${{ matrix.image }} \
+            --env ARCH="${{ matrix.arch }}" \
             --env HF_TOKEN=${{ secrets.HF_TOKEN }} \
-            .github/sky/${{ matrix.sky_config || 'build-apptainer.yaml' }}
+            .github/sky/build-apptainer.yaml

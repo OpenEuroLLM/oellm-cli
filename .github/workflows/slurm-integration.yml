@@ -78,17 +78,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup SkyPilot
-        uses: ./.github/actions/setup-skypilot
-        with:
-          lambda_api_key: ${{ secrets.LAMBDA_API_KEY }}
-
       - name: Install SSH key for SkyPilot
         run: |
+          echo "::add-mask::${{ needs.setup-lambda.outputs.sky-key }}"
+          echo "::add-mask::${{ needs.setup-lambda.outputs.sky-key-pub }}"
           mkdir -p ~/.ssh
           echo "${{ needs.setup-lambda.outputs.sky-key }}" | base64 -d > ~/.ssh/sky-key
           echo "${{ needs.setup-lambda.outputs.sky-key-pub }}" | base64 -d > ~/.ssh/sky-key.pub
           chmod 600 ~/.ssh/sky-key
+
+      - name: Setup SkyPilot
+        uses: ./.github/actions/setup-skypilot
+        with:
+          lambda_api_key: ${{ secrets.LAMBDA_API_KEY }}
 
       - name: Run SLURM integration test on Lambda
         run: |
