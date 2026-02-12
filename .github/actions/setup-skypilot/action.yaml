@@ -14,7 +14,7 @@ runs:
 
     - name: Install SkyPilot
       shell: bash
-      run: uv pip install --break-system-packages "skypilot[lambda]"
+      run: uv pip install --system --break-system-packages "skypilot[lambda]"
 
     - name: Configure Lambda Labs credentials
       shell: bash
