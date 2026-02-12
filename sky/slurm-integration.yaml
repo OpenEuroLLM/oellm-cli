@@ -1,0 +1,135 @@
+resources:
+  cloud: lambda
+  accelerators: A10:1
+  disk_size: 200
+
+envs:
+  TEST_MODE: null
+
+workdir: .
+
+setup: |
+  sudo apt-get update
+  sudo apt-get install -y \
+    software-properties-common \
+    munge \
+    slurm-wlm \
+    slurm-wlm-basic-plugins \
+    libmunge-dev
+
+  if [ "$TEST_MODE" == "container" ]; then
+    sudo add-apt-repository -y ppa:apptainer/ppa
+    sudo apt-get update
+    sudo apt-get install -y apptainer
+  fi
+
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  source $HOME/.local/bin/env
+  uv python install 3.12
+  uv sync --extra dev
+
+run: |
+  source $HOME/.local/bin/env
+
+  # --- Configure MUNGE ---
+  sudo dd if=/dev/urandom of=/etc/munge/munge.key bs=1 count=1024
+  sudo chown munge:munge /etc/munge/munge.key
+  sudo chmod 400 /etc/munge/munge.key
+  sudo systemctl start munge
+  sudo systemctl status munge
+
+  # --- Configure SLURM ---
+  HOSTNAME=$(hostname -s)
+
+  sudo mkdir -p /etc/slurm
+  sudo mkdir -p /var/spool/slurmd
+  sudo mkdir -p /var/spool/slurmctld
+  sudo mkdir -p /var/log/slurm
+
+  sudo tee /etc/slurm/slurm.conf > /dev/null << EOF
+  ClusterName=ci
+  SlurmctldHost=${HOSTNAME}
+  MpiDefault=none
+  ProctrackType=proctrack/linuxproc
+  ReturnToService=2
+  SlurmctldPidFile=/var/run/slurmctld.pid
+  SlurmdPidFile=/var/run/slurmd.pid
+  SlurmdSpoolDir=/var/spool/slurmd
+  SlurmUser=root
+  StateSaveLocation=/var/spool/slurmctld
+  SwitchType=switch/none
+  TaskPlugin=task/none
+
+  SchedulerType=sched/backfill
+  SelectType=select/cons_tres
+  SelectTypeParameters=CR_Core
+
+  SlurmctldLogFile=/var/log/slurm/slurmctld.log
+  SlurmdLogFile=/var/log/slurm/slurmd.log
+
+  GresTypes=gpu
+
+  NodeName=${HOSTNAME} CPUs=4 Gres=gpu:1 RealMemory=15000 State=UNKNOWN
+  PartitionName=gpu Nodes=${HOSTNAME} Default=YES MaxTime=INFINITE State=UP
+  EOF
+
+  sudo tee /etc/slurm/gres.conf > /dev/null << EOF
+  NodeName=${HOSTNAME} Name=gpu File=/dev/nvidia0
+  EOF
+
+  sudo chmod 644 /etc/slurm/slurm.conf
+  sudo chmod 644 /etc/slurm/gres.conf
+
+  # --- Start SLURM services ---
+  sudo slurmctld -D &
+  sleep 3
+  sudo slurmd -D &
+  sleep 3
+
+  for i in {1..30}; do
+    if sinfo | grep -q "idle"; then
+      echo "SLURM node is ready"
+      break
+    fi
+    echo "Waiting for SLURM node to become idle... ($i/30)"
+    sleep 2
+  done
+
+  sinfo
+  scontrol show node
+
+  # --- Set up test environment ---
+  EVAL_BASE_DIR="$(pwd)/../oellm-test"
+  mkdir -p "$EVAL_BASE_DIR"
+  mkdir -p "$EVAL_BASE_DIR/hf_data/hub"
+  mkdir -p "$EVAL_BASE_DIR/hf_data/datasets"
+  mkdir -p "$EVAL_BASE_DIR/$USER"
+  export EVAL_BASE_DIR
+
+  # --- Create swap ---
+  sudo fallocate -l 16G /tmp/swapfile
+  sudo chmod 600 /tmp/swapfile
+  sudo mkswap /tmp/swapfile
+  sudo swapon /tmp/swapfile
+
+  # --- Create test venv (venv mode) ---
+  if [ "$TEST_MODE" == "venv" ]; then
+    uv venv --python 3.12 "$EVAL_BASE_DIR/.venv"
+    uv pip install --python "$EVAL_BASE_DIR/.venv/bin/python" \
+      lm-eval torch transformers accelerate "datasets<4.0.0"
+    UV_TOOL_DIR="$EVAL_BASE_DIR/.uv-tools" UV_TOOL_BIN_DIR="$EVAL_BASE_DIR/.venv/bin" \
+      uv tool install --python 3.12 \
+        --with "langcodes[data]" --with "pillow" \
+        "lighteval[multilingual] @ git+https://github.com/huggingface/lighteval.git"
+  fi
+
+  # --- Run integration tests ---
+  VENV_FLAG=""
+  if [ "$TEST_MODE" = "venv" ]; then VENV_FLAG="--use-venv"; fi
+  uv run pytest tests/integration/test_slurm.py -v --tb=long --timeout=600 $VENV_FLAG
+
+  # --- Collect logs for rsync ---
+  mkdir -p /tmp/slurm-logs
+  sudo cp -r /var/log/slurm/* /tmp/slurm-logs/ 2>/dev/null || true
+  sudo chmod -R 755 /tmp/slurm-logs 2>/dev/null || true
+  cp -r "$EVAL_BASE_DIR/runner" /tmp/slurm-logs/ 2>/dev/null || true

@@ -1,0 +1,24 @@
+name: "Setup SkyPilot"
+description: "Install SkyPilot and configure Lambda Labs credentials"
+
+inputs:
+  lambda_api_key:
+    description: "Lambda Labs API key"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install SkyPilot
+      shell: bash
+      run: pip install "skypilot[lambda]"
+
+    - name: Configure Lambda Labs credentials
+      shell: bash
+      run: |
+        mkdir -p ~/.lambda_cloud
+        echo "api_key = ${{ inputs.lambda_api_key }}" > ~/.lambda_cloud/lambda_keys
+
+    - name: Verify cloud access
+      shell: bash
+      run: sky check lambda
