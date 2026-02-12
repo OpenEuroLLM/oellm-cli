@@ -23,6 +23,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    outputs:
+      sky-key: ${{ steps.gen.outputs.sky-key }}
+      sky-key-pub: ${{ steps.gen.outputs.sky-key-pub }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -33,6 +36,7 @@ jobs:
           lambda_api_key: ${{ secrets.LAMBDA_API_KEY }}
 
       - name: Generate and register SSH key on Lambda
+        id: gen
         env:
           LAMBDA_API_KEY: ${{ secrets.LAMBDA_API_KEY }}
         run: |
@@ -61,14 +65,8 @@ jobs:
             -d "{\"name\": \"sky-key\", \"public_key\": \"$(cat /tmp/sky-key.pub)\"}" \
             https://cloud.lambdalabs.com/api/v1/ssh-keys
 
-      - name: Upload SSH key
-        uses: actions/upload-artifact@v4
-        with:
-          name: sky-ssh-key
-          path: |
-            /tmp/sky-key
-            /tmp/sky-key.pub
-          retention-days: 1
+          echo "sky-key=$(base64 -w0 /tmp/sky-key)" >> "$GITHUB_OUTPUT"
+          echo "sky-key-pub=$(base64 -w0 /tmp/sky-key.pub)" >> "$GITHUB_OUTPUT"
 
   build-push:
     needs: setup-lambda
@@ -97,17 +95,11 @@ jobs:
         with:
           lambda_api_key: ${{ secrets.LAMBDA_API_KEY }}
 
-      - name: Restore SSH key
-        uses: actions/download-artifact@v4
-        with:
-          name: sky-ssh-key
-          path: /tmp/sky-ssh-key/
-
       - name: Install SSH key for SkyPilot
         run: |
           mkdir -p ~/.ssh
-          cp /tmp/sky-ssh-key/sky-key ~/.ssh/sky-key
-          cp /tmp/sky-ssh-key/sky-key.pub ~/.ssh/sky-key.pub
+          echo "${{ needs.setup-lambda.outputs.sky-key }}" | base64 -d > ~/.ssh/sky-key
+          echo "${{ needs.setup-lambda.outputs.sky-key-pub }}" | base64 -d > ~/.ssh/sky-key.pub
           chmod 600 ~/.ssh/sky-key
 
       - name: Build on Lambda Labs
