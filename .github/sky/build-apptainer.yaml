@@ -35,7 +35,6 @@ run: |
   ARCH_FLAG=""
   if [ -n "$ARCH" ]; then ARCH_FLAG="--arch $ARCH"; fi
   sudo apptainer --verbose build $ARCH_FLAG \
-    --mksquashfs-args="-comp zstd -Xcompression-level 3" \
     eval_env-${IMAGE_NAME}.sif containers/${IMAGE_NAME}.def
   hf auth login --token "$HF_TOKEN"
   hf upload \
