@@ -36,7 +36,6 @@ task_groups:
       - task: mmlu
         n_shots: [5]
         dataset: cais/mmlu
-        subset: all
       - task: hellaswag
         n_shots: [10]
         dataset: Rowan/hellaswag
@@ -53,10 +52,11 @@ task_groups:
         dataset: tau/commonsense_qa
       - task: piqa
         n_shots: [10]
-        dataset: ybisk/piqa
+        dataset: baber/piqa
       - task: boolq
         n_shots: [10]
-        dataset: google/boolq
+        dataset: aps/super_glue
+        subset: boolq
   belebele-eu-5-shot:
     description: "Belebele European language tasks"
     suite: lm-eval-harness
