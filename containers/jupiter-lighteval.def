@@ -1,0 +1,67 @@
+Bootstrap: docker
+From: nvcr.io/nvidia/pytorch:25.06-py3
+
+%labels
+    Author      oellm-cli
+    Description Dedicated lighteval container for Jupiter JSC cluster (ARM64 / GH200)
+
+%post
+    # Install uv into a global bin
+    curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+    export UV_TOOL_BIN_DIR=/usr/local/bin
+    uv --version
+
+    SITE_PACKAGES=$(python -c "import site; print(site.getsitepackages()[0])")
+    TF5_DIR=/opt/tf5
+
+    # lighteval requires transformers>=5.0. NGC ships 4.53 and under fakeroot
+    # we cannot overwrite base-image files. Install to separate dir + .pth override.
+    pip install --no-deps --target "$TF5_DIR" \
+        "transformers==5.1.0" "tokenizers>=0.22" "huggingface_hub>=0.28"
+    echo "import sys; sys.path.insert(0, '$TF5_DIR')" > "$SITE_PACKAGES/00-tf5.pth"
+
+    # Install lighteval pinned to tested commit (--no-deps avoids pulling CPU torch)
+    pip install --no-deps \
+        "lighteval @ git+https://github.com/huggingface/lighteval.git@63424f4e795ecc577b90646381b374af3a627978"
+
+    # Install all lighteval runtime deps into system site-packages
+    # This shares NGC's pre-installed CUDA torch (no CPU-only torch from PyPI)
+    uv pip install --system --break-system-packages \
+        "numpy<2" accelerate "datasets>=3.5.0,<4.0.0" sentencepiece \
+        "spacy>=3.0.0,<4.0.0" jieba pyvi "underthesea>=6.0.0" nltk "hf-xet>=1.0" \
+        GitPython pydantic typer "termcolor==2.3.0" pytablewriter rich colorlog \
+        "aenum==3.1.15" scikit-learn sacrebleu "rouge_score==0.1.2" protobuf \
+        pycountry "fsspec>=2023.12.2" "httpx>=0.27.2" "latex2sympy2_extended==1.0.6" \
+        langcodes language_data pillow wandb tiktoken
+
+    # Fix bigbench tasks (https://github.com/huggingface/lighteval/issues/1163):
+    #   1. Use tasksource/bigbench HF mirror instead of gated "bigbench" repo
+    #   2. Fix evaluation splits: "default" -> "validation"
+    #   3. Add SpaCyTokenizer import fallback to WhitespaceTokenizer
+    TASKS_PY="$SITE_PACKAGES/lighteval/tasks/default_tasks.py"
+    sed -i 's|hf_repo="bigbench"|hf_repo="tasksource/bigbench"|g' "$TASKS_PY"
+    sed -i 's|evaluation_splits=\["default"\]|evaluation_splits=["validation"]|g' "$TASKS_PY"
+    sed -i 's|hf_avail_splits=\["default", "train", "validation"\]|hf_avail_splits=["train", "validation"]|g' "$TASKS_PY"
+
+    TOKENIZER_PY="$SITE_PACKAGES/lighteval/metrics/utils/linguistic_tokenizers.py"
+    sed -i 's|    return tokenizer()|    try:\n        return tokenizer()\n    except ImportError:\n        return WhitespaceTokenizer()|' "$TOKENIZER_PY"
+
+    # Fix BLEURT multi-gold bugs:
+    #   1. Add padding/truncation to handle variable-length gold answers
+    #   2. Take max score when multiple golds exist (instead of failing on .item())
+    METRICS_PY="$SITE_PACKAGES/lighteval/metrics/metrics_sample.py"
+    sed -i 's|self.tokenizer(golds, predictions, return_tensors="pt")|self.tokenizer(golds, predictions, return_tensors="pt", padding=True, truncation=True)|' "$METRICS_PY"
+    sed -i 's|return scores.item()|return scores.max().item() if scores.numel() > 1 else scores.item()|' "$METRICS_PY"
+
+    # NLTK data
+    mkdir -p /opt/nltk_data
+    python -c "import nltk; nltk.download('punkt', download_dir='/opt/nltk_data'); nltk.download('punkt_tab', download_dir='/opt/nltk_data')"
+
+%environment
+    export PATH=/usr/local/bin:$PATH
+    export NLTK_DATA=/opt/nltk_data
+    # NGC base sets SSL_CERT_FILE to RHEL path; override for Ubuntu container
+    export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+
+%runscript
+    exec bash "$@"

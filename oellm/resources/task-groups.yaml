@@ -293,6 +293,53 @@ task_groups:
       - task: include_base_44_ukrainian
         subset: Ukrainian
 
+  dclm-core-22:
+    description: "DCLM Core 22 evaluation tasks"
+    suite: lighteval
+    tasks:
+      - task: "agieval:lsat-ar"
+        n_shots: [3]
+      - task: "arc:easy"
+        n_shots: [10]
+      - task: "leaderboard|arc:challenge"
+        n_shots: [10]
+      - task: "bigbench|qa_wikidata"
+        n_shots: [10]
+      - task: "bigbench|dyck_languages"
+        n_shots: [10]
+      - task: "bigbench|operators"
+        n_shots: [10]
+      - task: "bigbench|repeat_copy_logic"
+        n_shots: [10]
+      - task: "bigbench|cs_algorithms"
+        n_shots: [10]
+      - task: "bigbench|language_identification"
+        n_shots: [10]
+      - task: "super_glue:boolq"
+        n_shots: [10]
+      - task: "helm|commonsenseqa"
+        n_shots: [10]
+      - task: "super_glue:copa"
+        n_shots: [0]
+      - task: coqa
+        n_shots: [0]
+      - task: jeopardy
+        n_shots: [10]
+      - task: squad_v2
+        n_shots: [10]
+      - task: "leaderboard|hellaswag"
+        n_shots: [0, 10]
+      - task: "lambada:openai"
+        n_shots: [0]
+      - task: openbookqa
+        n_shots: [0]
+      - task: piqa
+        n_shots: [10]
+      - task: wsc273
+        n_shots: [0]
+      - task: "leaderboard|winogrande"
+        n_shots: [0]
+
 super_groups:
   oellm-multilingual:
     description: "Combined Belebele EU set plus multilingual benchmarks"

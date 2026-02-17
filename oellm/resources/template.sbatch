@@ -25,6 +25,8 @@ export HF_HUB_OFFLINE=1
 
 # Path to the shared Singularity image that contains all runtime deps
 export EVAL_SIF_PATH="$EVAL_BASE_DIR/$EVAL_CONTAINER_IMAGE"
+# Dedicated lighteval container (if LIGHTEVAL_CONTAINER_IMAGE is configured)
+export LIGHTEVAL_SIF_PATH="$EVAL_BASE_DIR/$LIGHTEVAL_CONTAINER_IMAGE"
 
 echo "Running eval on $CSV_PATH with $NUM_JOBS array jobs distributing $TOTAL_EVALS evaluations"
 echo "SLURM_JOB_ID: $SLURM_JOB_ID"
@@ -94,11 +96,23 @@ do
         fi
     fi
 
+    # predictions in ~/.cache). Bind real filesystem dirs to for more storage 
+    # (lighteval caches predictions in ~/.cache)
+    SINGULARITY_HOME_ARG=""
+    if [[ "$SINGULARITY_ARGS" == *"--contain"* ]]; then
+        JOB_TMP="/tmp/oellm-$SLURM_JOB_ID"
+        JOB_HOME="$EVAL_BASE_DIR/$USER/container_home/$SLURM_JOB_ID"
+        mkdir -p "$JOB_TMP" "$JOB_HOME"
+        BIND_PATHS="$BIND_PATHS,$JOB_TMP:/tmp"
+        SINGULARITY_HOME_ARG="--home $JOB_HOME"
+    fi
+
     suite_normalized=$(echo "$eval_suite" | tr '[:upper:]' '[:lower:]')
 
     case "$suite_normalized" in
         lm_eval|lm-eval|lm-eval-harness)
             singularity exec $SINGULARITY_ARGS \
+                $SINGULARITY_HOME_ARG \
                 --bind $BIND_PATHS \
                 $EVAL_SIF_PATH \
                 python -m lm_eval --model hf \
@@ -113,30 +127,31 @@ do
 
             if [[ -f "$LIGHT_TASK" ]]; then
                 LIGHT_TASK_ARG="$LIGHT_TASK"
-            else
+            elif [[ "$LIGHT_TASK" == *"|"* ]]; then
                 last_segment="${{LIGHT_TASK##*|}}"
-                if [[ "$LIGHT_TASK" == *"|"* && "$last_segment" =~ ^[0-9]+$ ]]; then
+                if [[ "$last_segment" =~ ^[0-9]+$ ]]; then
                     if [[ -n "$n_shot" && "$last_segment" != "$n_shot" ]]; then
                         LIGHT_TASK_ARG="${{LIGHT_TASK%|*}}|$n_shot"
                     else
                         LIGHT_TASK_ARG="$LIGHT_TASK"
                     fi
                 else
-                    LIGHT_TASK_ARG="lighteval|${{LIGHT_TASK}}|$n_shot|0"
+                    LIGHT_TASK_ARG="${{LIGHT_TASK}}|$n_shot|0"
                 fi
+            else
+                LIGHT_TASK_ARG="lighteval|${{LIGHT_TASK}}|$n_shot|0"
             fi
 
             RESULTS_SUBDIR="{evals_dir}/$(openssl rand -hex 5)"
             mkdir -p "$RESULTS_SUBDIR"
 
             singularity exec $SINGULARITY_ARGS \
+                $SINGULARITY_HOME_ARG \
                 --bind $BIND_PATHS \
-                --env CUDA_VISIBLE_DEVICES=$SLURM_GPUS_PER_NODE \
-                $EVAL_SIF_PATH \
+                $LIGHTEVAL_SIF_PATH \
                 lighteval accelerate \
                     "model_name=$model_path,trust_remote_code=True" \
                     "$LIGHT_TASK_ARG" \
-                    --custom-tasks lighteval.tasks.multilingual.tasks \
                     --output-dir "$RESULTS_SUBDIR"
             ;;
         *)
@@ -144,7 +159,12 @@ do
             ;;
     esac
 
-    echo "Evaluation finished for model: $model_path"
+    eval_exit=$?
+    if [[ $eval_exit -ne 0 ]]; then
+        echo "ERROR: Evaluation FAILED (exit code $eval_exit) for model: $model_path, task: $task_path"
+    else
+        echo "Evaluation finished for model: $model_path"
+    fi
 
 done
 
