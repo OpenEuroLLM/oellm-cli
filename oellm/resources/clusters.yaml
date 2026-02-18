@@ -34,7 +34,7 @@ jupiter:
   QUEUE_LIMIT: 250
   EVAL_CONTAINER_IMAGE: "lm-eval-jupiter.sif"
   LIGHTEVAL_CONTAINER_IMAGE: "lighteval-jupiter.sif"
-  SINGULARITY_ARGS: "--nv --contain --env PYTHONNOUSERSITE=1 --env SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt --env CUDA_VISIBLE_DEVICES=0"
+  SINGULARITY_ARGS: "--nv --contain --env PYTHONNOUSERSITE=1 --env SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt"
 
 lumi:
   hostname_pattern: "uan*"
