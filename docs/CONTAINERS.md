@@ -6,18 +6,18 @@ Apptainer containers are built automatically via GitHub Actions and stored on Hu
 
 ## How It Works
 
-1. Definition files live in `containers/<cluster>.def`
+1. Definition files live in `apptainer/<cluster>.def`
 2. On push to `main` (when `.def` files change), GitHub Actions builds all containers on [runs-on](https://runs-on.com/) AWS EC2 runners
 3. Built `.sif` images are uploaded to HuggingFace Hub
 4. Clusters pull the image specified in `oellm/resources/clusters.yaml` via `EVAL_CONTAINER_IMAGE`
 
 ## Adding a New Cluster
 
-1. Create `containers/<cluster>.def` with the appropriate base image:
+1. Create `apptainer/<cluster>.def` with the appropriate base image:
    - NVIDIA: `nvcr.io/nvidia/pytorch:25.06-py3` (or newer)
    - AMD/ROCm: `rocm/pytorch:rocm6.4.1_ubuntu24.04_py3.12_pytorch_release_2.7.1` (or newer)
 
-2. Add the cluster to the matrix in `.github/workflows/build-and-push-apptainer.yml`:
+2. Add the cluster name to the matrix in `.github/workflows/build-and-push-apptainer.yml`:
    ```yaml
    matrix:
      include:
