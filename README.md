@@ -35,7 +35,9 @@ This will automatically:
 - Detect your current HPC cluster (Leonardo, LUMI, or JURECA)
 - Download and cache the specified models
 - Pre-download datasets for known tasks (see warning below)
-- Generate and submit a SLURM job array with appropriate cluster-specific resources
+- Generate and submit a SLURM job array with appropriate cluster-specific resources and using containers built for this cluster
+
+In case you do not want to rely on the containers provided on a given cluster or try out specific package versions, you can use a custom environment by passing `--venv_path`, see [docs/VENV.md](docs/VENV.md).
 
 ## Task Groups
 
