@@ -287,7 +287,7 @@ def _process_model_paths(models: Iterable[str]):
                     status.update(f"Downloading '{model}' ({idx}/{len(models_list)})")
                     snapshot_download(
                         repo_id=model,
-                        cache_dir=Path(os.getenv("HF_HOME")) / "hub",
+                        cache_dir=Path(os.getenv("HF_HOME")) / "hub" if "HF_HOME" in os.environ else None
                     )
                     per_model_paths.append(model)
 
