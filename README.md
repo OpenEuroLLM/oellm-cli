@@ -8,6 +8,7 @@ A lightweight CLI for scheduling LLM evaluations across multiple HPC clusters us
 - **Collect results** and check for missing evaluations: `oellm collect-results`
 - **Task groups** for pre-defined evaluation suites with automatic dataset pre-downloading
 - **Multi-cluster support** with auto-detection (Leonardo, LUMI, JURECA)
+- **Automatic building and deployment of containers** 
 
 ## Quick Start
 
@@ -147,6 +148,13 @@ uv run pytest tests/test_datasets.py -v
 # Download-only mode for testing
 uv run oellm schedule-eval --models "EleutherAI/pythia-160m" --task_groups "open-sci-0.01" --download_only
 ```
+
+## Deploying containers
+
+Containers are deployed manually since [PR #46](https://github.com/OpenEuroLLM/oellm-cli/pull/46) to save costs.
+
+To build and deploy them, select run workflow in [Actions](https://github.com/OpenEuroLLM/oellm-cli/actions/workflows/build-and-push-apptainer.yml).
+
 
 ## Troubleshooting
 
