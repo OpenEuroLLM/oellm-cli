@@ -1,11 +1,6 @@
 name: Build and push Apptainer images
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'containers/*.def'
-      - '.github/workflows/build-and-push-apptainer.yml'
   workflow_dispatch:
     inputs:
       tag:
