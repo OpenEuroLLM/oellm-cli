@@ -31,8 +31,8 @@ def test_schedule_evals(tmp_path, n_shot, task_groups):
         )
 
 
-def test_schedule_evals_partition_and_time_overrides(tmp_path):
-    """Verify --partition and --time_limit overrides appear in the generated sbatch."""
+def test_schedule_evals_slurm_opt_overrides(tmp_path):
+    """Verify --slurm_opt space-separated KEY=VALUE overrides appear in the generated sbatch."""
     with (
         patch("oellm.main._load_cluster_env"),
         patch("oellm.main._num_jobs_in_queue", return_value=0),
@@ -52,12 +52,12 @@ def test_schedule_evals_partition_and_time_overrides(tmp_path):
             skip_checks=True,
             venv_path=str(Path(sys.prefix)),
             dry_run=True,
-            partition="dev-g",
-            time_limit="01:30:00",
+            slurm_opt="partition=dev-g account=myproject time=02:15:00",
         )
 
     sbatch_files = list(tmp_path.glob("**/submit_evals.sbatch"))
     assert len(sbatch_files) == 1
     sbatch_content = sbatch_files[0].read_text()
     assert "#SBATCH --partition=dev-g" in sbatch_content
-    assert "#SBATCH --time=01:30:00" in sbatch_content
+    assert "#SBATCH --account=myproject" in sbatch_content
+    assert "#SBATCH --time=02:15:00" in sbatch_content

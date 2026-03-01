@@ -54,8 +54,7 @@ def schedule_evals(
     skip_checks: bool = False,
     trust_remote_code: bool = True,
     venv_path: str | None = None,
-    partition: str | None = None,
-    time_limit: str | None = None,
+    slurm_opt: str | None = None,
 ) -> None:
     """
     Schedule evaluation jobs for a given set of models, tasks, and number of shots.
@@ -87,10 +86,9 @@ def schedule_evals(
         trust_remote_code: If True, trust remote code when downloading datasets. Default is True. Workflow might fail if set to False.
         venv_path: Path to a Python virtual environment. If provided, evaluations run directly using
             this venv instead of inside a Singularity/Apptainer container.
-        partition: Override the SLURM partition (e.g. dev-g on LUMI when small-g is crowded).
-            Defaults to the cluster config from clusters.yaml.
-        time_limit: Override the SLURM time limit in HH:MM:SS format (e.g. 02:00:00).
-            Defaults to an auto-computed value based on eval count.
+        slurm_opt: Space-separated KEY=VALUE overrides for SLURM/template variables.
+            Example: "partition=dev-g account=FOO time=02:00:00"
+            Keys: partition, account, gpus_per_node, time (HH:MM:SS). Unknown keys set env vars.
     """
     _setup_logging(verbose)
 
@@ -291,14 +289,31 @@ def schedule_evals(
     hours_with_margin = max(hours_with_margin, 3)
     hours_with_margin = min(hours_with_margin, 23)
     computed_time = f"{hours_with_margin:02d}:59:00"
-    time_limit = time_limit if time_limit is not None else computed_time
-    if time_limit != computed_time:
-        logging.info(f"Using time limit override: {time_limit}")
+    time_limit = computed_time
 
-    # Override partition if specified
-    if partition is not None:
-        os.environ["PARTITION"] = partition
-        logging.info(f"Using partition override: {partition}")
+    # Apply slurm_opt overrides (space-separated KEY=VALUE pairs)
+    _SLURM_OPT_ENV_MAP = {
+        "partition": "PARTITION",
+        "account": "ACCOUNT",
+        "gpus_per_node": "GPUS_PER_NODE",
+    }
+    if slurm_opt:
+        opts = [p for p in slurm_opt.split() if p]
+        for opt in opts:
+            if "=" not in opt:
+                raise ValueError(
+                    f"slurm_opt must be KEY=VALUE pairs, got: {opt!r}"
+                )
+            key, _, value = opt.partition("=")
+            key_lower = key.strip().lower()
+            value = value.strip()
+            if key_lower == "time":
+                time_limit = value
+                logging.info(f"Using time limit override: {value}")
+            else:
+                env_key = _SLURM_OPT_ENV_MAP.get(key_lower, key.strip().upper())
+                os.environ[env_key] = value
+                logging.info(f"Using slurm_opt override: {env_key}={value}")
 
     # Log the calculated values
     logging.info("📊 Evaluation planning:")
