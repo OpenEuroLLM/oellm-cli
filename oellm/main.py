@@ -308,6 +308,7 @@ def schedule_evals(
         for key, value in opts.items():
             if not isinstance(value, str):
                 value = str(value)
+            value = value.strip()
             key_lower = key.strip().lower()
             if key_lower == "time":
                 time_limit = value
