@@ -87,9 +87,9 @@ def schedule_evals(
         trust_remote_code: If True, trust remote code when downloading datasets. Default is True. Workflow might fail if set to False.
         venv_path: Path to a Python virtual environment. If provided, evaluations run directly using
             this venv instead of inside a Singularity/Apptainer container.
-        slurm_template_var: JSON object of template variable overrides. Keys map to env vars
-            (partition→PARTITION, account→ACCOUNT, etc.); "time" overrides the time limit.
-            Example: '{"partition":"dev-g","account":"FOO","time":"02:00:00"}'
+        slurm_template_var: JSON object of template variable overrides. Use exact env var names
+            (PARTITION, ACCOUNT, GPUS_PER_NODE). "TIME" overrides the time limit.
+            Example: '{"PARTITION":"dev-g","ACCOUNT":"FOO","TIME":"02:00:00","GPUS_PER_NODE":2}'
     """
     _setup_logging(verbose)
 
@@ -303,20 +303,15 @@ def schedule_evals(
         if not isinstance(opts, dict):
             raise ValueError(
                 "slurm_template_var must be a JSON object, e.g. "
-                '{"partition":"dev-g","account":"FOO"}'
+                '{"PARTITION":"dev-g","ACCOUNT":"FOO","TIME":"02:00:00"}'
             )
         for key, value in opts.items():
-            if not isinstance(value, str):
-                value = str(value)
-            value = value.strip()
-            key_lower = key.strip().lower()
-            if key_lower == "time":
-                time_limit = value
-                logging.info(f"Using time limit override: {value}")
+            if key.upper() == "TIME":
+                time_limit = str(value)
+                logging.info(f"Using time limit override: {time_limit}")
             else:
-                env_key = key.strip().upper()
-                os.environ[env_key] = value
-                logging.info(f"Using slurm_template_var override: {env_key}={value}")
+                os.environ[key] = str(value)
+                logging.info(f"Using slurm_template_var override: {key}={value}")
 
     # Log the calculated values
     logging.info("📊 Evaluation planning:")
@@ -429,8 +424,11 @@ def collect_results(
         _tg_cfg = yaml.safe_load(_f)
     task_metrics = _tg_cfg.get("task_metrics", {})
 
-    def _resolve_metric(task_name: str, result_dict: dict) -> tuple[float | None, str | None]:
+    def _resolve_metric(
+        task_name: str, result_dict: dict
+    ) -> tuple[float | None, str | None]:
         """Return (value, metric_name) for task_name from result_dict."""
+
         # Skip non-metric keys; lm-eval uses suffixes like ",none" or ",remove_whitespace"
         def _first_numeric(d: dict, *candidates: str) -> tuple[float | None, str | None]:
             for c in candidates:
@@ -438,7 +436,9 @@ def collect_results(
                     return float(d[c]), c
             return None, None
 
-        def _first_matching_prefix(d: dict, prefix: str) -> tuple[float | None, str | None]:
+        def _first_matching_prefix(
+            d: dict, prefix: str
+        ) -> tuple[float | None, str | None]:
             for k, v in d.items():
                 if (k == prefix or k.startswith(prefix + ",")) and isinstance(
                     v, (int, float)
@@ -448,9 +448,7 @@ def collect_results(
 
         preferred = task_metrics.get(task_name)
         if preferred is not None:
-            val, key = _first_numeric(
-                result_dict, f"{preferred},none", preferred
-            )
+            val, key = _first_numeric(result_dict, f"{preferred},none", preferred)
             if val is not None:
                 return val, key
             val, key = _first_matching_prefix(result_dict, preferred)
@@ -460,9 +458,7 @@ def collect_results(
             val, key = _first_numeric(result_dict, metric)
             if val is not None:
                 return val, key
-            val, key = _first_matching_prefix(
-                result_dict, metric.split(",")[0]
-            )
+            val, key = _first_matching_prefix(result_dict, metric.split(",")[0])
             if val is not None:
                 return val, key
         return None, None

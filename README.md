@@ -74,14 +74,14 @@ Override cluster defaults (partition, account, time limit, etc.) with `--slurm_t
 ```bash
 # Use a different partition (e.g. dev-g on LUMI when small-g is crowded)
 oellm schedule-eval --models "model-name" --task_groups "open-sci-0.01" \
-  --slurm_template_var '{"partition":"dev-g"}'
+  --slurm_template_var '{"PARTITION":"dev-g"}'
 
-# Multiple overrides: partition, account, and time limit
+# Multiple overrides: partition, account, time limit, GPUs
 oellm schedule-eval --models "model-name" --task_groups "open-sci-0.01" \
-  --slurm_template_var '{"partition":"dev-g","account":"myproject","time":"02:00:00"}'
+  --slurm_template_var '{"PARTITION":"dev-g","ACCOUNT":"myproject","TIME":"02:00:00","GPUS_PER_NODE":2}'
 ```
 
-Supported keys: `partition`, `account`, `gpus_per_node`, `time` (HH:MM:SS). Unknown keys set environment variables for the template.
+Use exact env var names: `PARTITION`, `ACCOUNT`, `GPUS_PER_NODE`. `TIME` (HH:MM:SS) overrides the time limit.
 
 ## ⚠️ Dataset Pre-Download Warning
 

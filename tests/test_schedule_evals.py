@@ -52,7 +52,7 @@ def test_schedule_evals_slurm_template_var_overrides(tmp_path):
             skip_checks=True,
             venv_path=str(Path(sys.prefix)),
             dry_run=True,
-            slurm_template_var='{"partition":"dev-g","account":"myproject","time":"02:15:00"}',
+            slurm_template_var='{"PARTITION":"dev-g","ACCOUNT":"myproject","TIME":"02:15:00","GPUS_PER_NODE":2}',
         )
 
     sbatch_files = list(tmp_path.glob("**/submit_evals.sbatch"))
@@ -61,6 +61,7 @@ def test_schedule_evals_slurm_template_var_overrides(tmp_path):
     assert "#SBATCH --partition=dev-g" in sbatch_content
     assert "#SBATCH --account=myproject" in sbatch_content
     assert "#SBATCH --time=02:15:00" in sbatch_content
+    assert "#SBATCH --gres=gpu:2" in sbatch_content
 
 
 def test_schedule_evals_slurm_template_var_invalid_json(tmp_path):
