@@ -31,8 +31,8 @@ def test_schedule_evals(tmp_path, n_shot, task_groups):
         )
 
 
-def test_schedule_evals_slurm_opt_overrides(tmp_path):
-    """Verify --slurm_opt space-separated KEY=VALUE overrides appear in the generated sbatch."""
+def test_schedule_evals_slurm_template_var_overrides(tmp_path):
+    """Verify --slurm_template_var JSON overrides appear in the generated sbatch."""
     with (
         patch("oellm.main._load_cluster_env"),
         patch("oellm.main._num_jobs_in_queue", return_value=0),
@@ -52,7 +52,7 @@ def test_schedule_evals_slurm_opt_overrides(tmp_path):
             skip_checks=True,
             venv_path=str(Path(sys.prefix)),
             dry_run=True,
-            slurm_opt="partition=dev-g,account=myproject,time=02:15:00",
+            slurm_template_var='{"partition":"dev-g","account":"myproject","time":"02:15:00"}',
         )
 
     sbatch_files = list(tmp_path.glob("**/submit_evals.sbatch"))
@@ -61,3 +61,32 @@ def test_schedule_evals_slurm_opt_overrides(tmp_path):
     assert "#SBATCH --partition=dev-g" in sbatch_content
     assert "#SBATCH --account=myproject" in sbatch_content
     assert "#SBATCH --time=02:15:00" in sbatch_content
+
+
+def test_schedule_evals_slurm_template_var_invalid_json(tmp_path):
+    """Verify invalid slurm_template_var raises ValueError."""
+    with (
+        patch("oellm.main._load_cluster_env"),
+        patch("oellm.main._num_jobs_in_queue", return_value=0),
+        patch.dict(os.environ, {"EVAL_OUTPUT_DIR": str(tmp_path)}),
+    ):
+        with pytest.raises(ValueError, match="valid JSON object"):
+            schedule_evals(
+                models="EleutherAI/pythia-70m",
+                tasks="hellaswag",
+                n_shot=0,
+                skip_checks=True,
+                venv_path=str(Path(sys.prefix)),
+                dry_run=True,
+                slurm_template_var="not valid json",
+            )
+        with pytest.raises(ValueError, match="must be a JSON object"):
+            schedule_evals(
+                models="EleutherAI/pythia-70m",
+                tasks="hellaswag",
+                n_shot=0,
+                skip_checks=True,
+                venv_path=str(Path(sys.prefix)),
+                dry_run=True,
+                slurm_template_var='["partition", "dev-g"]',
+            )

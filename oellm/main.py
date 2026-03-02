@@ -1,3 +1,4 @@
+import json
 import logging
 import math
 import os
@@ -54,7 +55,7 @@ def schedule_evals(
     skip_checks: bool = False,
     trust_remote_code: bool = True,
     venv_path: str | None = None,
-    slurm_opt: str | None = None,
+    slurm_template_var: str | None = None,
 ) -> None:
     """
     Schedule evaluation jobs for a given set of models, tasks, and number of shots.
@@ -86,9 +87,9 @@ def schedule_evals(
         trust_remote_code: If True, trust remote code when downloading datasets. Default is True. Workflow might fail if set to False.
         venv_path: Path to a Python virtual environment. If provided, evaluations run directly using
             this venv instead of inside a Singularity/Apptainer container.
-        slurm_opt: Comma-separated KEY=VALUE overrides for SLURM/template variables.
-            Example: "partition=dev-g,account=FOO,time=02:00:00"
-            Keys: partition, account, gpus_per_node, time (HH:MM:SS). Unknown keys set env vars.
+        slurm_template_var: JSON object of template variable overrides. Keys map to env vars
+            (partition→PARTITION, account→ACCOUNT, etc.); "time" overrides the time limit.
+            Example: '{"partition":"dev-g","account":"FOO","time":"02:00:00"}'
     """
     _setup_logging(verbose)
 
@@ -291,29 +292,30 @@ def schedule_evals(
     computed_time = f"{hours_with_margin:02d}:59:00"
     time_limit = computed_time
 
-    # Apply slurm_opt overrides (space-separated KEY=VALUE pairs)
-    _SLURM_OPT_ENV_MAP = {
-        "partition": "PARTITION",
-        "account": "ACCOUNT",
-        "gpus_per_node": "GPUS_PER_NODE",
-    }
-    if slurm_opt:
-        opts = [p.strip() for p in slurm_opt.split(",") if p.strip()]
-        for opt in opts:
-            if "=" not in opt:
-                raise ValueError(
-                    f"slurm_opt must be KEY=VALUE pairs, got: {opt!r}"
-                )
-            key, _, value = opt.partition("=")
+    # Apply slurm_template_var overrides (JSON object)
+    if slurm_template_var:
+        try:
+            opts = json.loads(slurm_template_var)
+        except json.JSONDecodeError as e:
+            raise ValueError(
+                f"slurm_template_var must be a valid JSON object: {e}"
+            ) from e
+        if not isinstance(opts, dict):
+            raise ValueError(
+                "slurm_template_var must be a JSON object, e.g. "
+                '{"partition":"dev-g","account":"FOO"}'
+            )
+        for key, value in opts.items():
+            if not isinstance(value, str):
+                value = str(value)
             key_lower = key.strip().lower()
-            value = value.strip()
             if key_lower == "time":
                 time_limit = value
                 logging.info(f"Using time limit override: {value}")
             else:
-                env_key = _SLURM_OPT_ENV_MAP.get(key_lower, key.strip().upper())
+                env_key = key.strip().upper()
                 os.environ[env_key] = value
-                logging.info(f"Using slurm_opt override: {env_key}={value}")
+                logging.info(f"Using slurm_template_var override: {env_key}={value}")
 
     # Log the calculated values
     logging.info("📊 Evaluation planning:")
@@ -553,7 +555,7 @@ def collect_results(
                         "task": group_name,
                         "n_shot": n_shot,
                         "performance": performance,
-                        "metric_name": metric_name or "",
+                        "metric_name": metric_name if metric_name is not None else "",
                     }
                 )
                 # Skip per-task iteration when groups are present
@@ -620,7 +622,7 @@ def collect_results(
                         "task": task_name,
                         "n_shot": n_shot,
                         "performance": performance,
-                        "metric_name": metric_name or "",
+                        "metric_name": metric_name if metric_name is not None else "",
                     }
                 )
             else:

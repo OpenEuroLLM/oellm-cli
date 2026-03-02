@@ -69,19 +69,19 @@ oellm schedule-eval --models "model-name" --task_groups "oellm-multilingual"
 
 ## SLURM Overrides
 
-Override cluster defaults (partition, account, time limit, etc.) with `--slurm_opt`:
+Override cluster defaults (partition, account, time limit, etc.) with `--slurm_template_var` (JSON object):
 
 ```bash
 # Use a different partition (e.g. dev-g on LUMI when small-g is crowded)
 oellm schedule-eval --models "model-name" --task_groups "open-sci-0.01" \
-  --slurm_opt "partition=dev-g"
+  --slurm_template_var '{"partition":"dev-g"}'
 
 # Multiple overrides: partition, account, and time limit
 oellm schedule-eval --models "model-name" --task_groups "open-sci-0.01" \
-  --slurm_opt "partition=dev-g,account=myproject,time=02:00:00"
+  --slurm_template_var '{"partition":"dev-g","account":"myproject","time":"02:00:00"}'
 ```
 
-Supported keys: `partition`, `account`, `time` (HH:MM:SS). Unknown keys set environment variables for the template.
+Supported keys: `partition`, `account`, `gpus_per_node`, `time` (HH:MM:SS). Unknown keys set environment variables for the template.
 
 ## ⚠️ Dataset Pre-Download Warning
 
