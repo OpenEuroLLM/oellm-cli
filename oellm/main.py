@@ -86,8 +86,8 @@ def schedule_evals(
         trust_remote_code: If True, trust remote code when downloading datasets. Default is True. Workflow might fail if set to False.
         venv_path: Path to a Python virtual environment. If provided, evaluations run directly using
             this venv instead of inside a Singularity/Apptainer container.
-        slurm_opt: Space-separated KEY=VALUE overrides for SLURM/template variables.
-            Example: "partition=dev-g account=FOO time=02:00:00"
+        slurm_opt: Comma-separated KEY=VALUE overrides for SLURM/template variables.
+            Example: "partition=dev-g,account=FOO,time=02:00:00"
             Keys: partition, account, gpus_per_node, time (HH:MM:SS). Unknown keys set env vars.
     """
     _setup_logging(verbose)
@@ -298,7 +298,7 @@ def schedule_evals(
         "gpus_per_node": "GPUS_PER_NODE",
     }
     if slurm_opt:
-        opts = [p for p in slurm_opt.split() if p]
+        opts = [p.strip() for p in slurm_opt.split(",") if p.strip()]
         for opt in opts:
             if "=" not in opt:
                 raise ValueError(

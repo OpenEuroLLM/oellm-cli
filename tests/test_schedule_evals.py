@@ -52,7 +52,7 @@ def test_schedule_evals_slurm_opt_overrides(tmp_path):
             skip_checks=True,
             venv_path=str(Path(sys.prefix)),
             dry_run=True,
-            slurm_opt="partition=dev-g account=myproject time=02:15:00",
+            slurm_opt="partition=dev-g,account=myproject,time=02:15:00",
         )
 
     sbatch_files = list(tmp_path.glob("**/submit_evals.sbatch"))
