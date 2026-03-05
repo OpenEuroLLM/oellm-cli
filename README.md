@@ -67,6 +67,22 @@ oellm schedule-eval --models "model-name" --task_groups "belebele-eu-5-shot,glob
 oellm schedule-eval --models "model-name" --task_groups "oellm-multilingual"
 ```
 
+## SLURM Overrides
+
+Override cluster defaults (partition, account, time limit, etc.) with `--slurm_template_var` (JSON object):
+
+```bash
+# Use a different partition (e.g. dev-g on LUMI when small-g is crowded)
+oellm schedule-eval --models "model-name" --task_groups "open-sci-0.01" \
+  --slurm_template_var '{"PARTITION":"dev-g"}'
+
+# Multiple overrides: partition, account, time limit, GPUs
+oellm schedule-eval --models "model-name" --task_groups "open-sci-0.01" \
+  --slurm_template_var '{"PARTITION":"dev-g","ACCOUNT":"myproject","TIME":"02:00:00","GPUS_PER_NODE":2}'
+```
+
+Use exact env var names: `PARTITION`, `ACCOUNT`, `GPUS_PER_NODE`. `TIME` (HH:MM:SS) overrides the time limit.
+
 ## ⚠️ Dataset Pre-Download Warning
 
 **Datasets are only automatically pre-downloaded for tasks defined in [`task-groups.yaml`](oellm/resources/task-groups.yaml).**

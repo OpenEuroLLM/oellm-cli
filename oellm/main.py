@@ -1,3 +1,4 @@
+import json
 import logging
 import math
 import os
@@ -54,6 +55,7 @@ def schedule_evals(
     skip_checks: bool = False,
     trust_remote_code: bool = True,
     venv_path: str | None = None,
+    slurm_template_var: str | None = None,
 ) -> None:
     """
     Schedule evaluation jobs for a given set of models, tasks, and number of shots.
@@ -85,6 +87,9 @@ def schedule_evals(
         trust_remote_code: If True, trust remote code when downloading datasets. Default is True. Workflow might fail if set to False.
         venv_path: Path to a Python virtual environment. If provided, evaluations run directly using
             this venv instead of inside a Singularity/Apptainer container.
+        slurm_template_var: JSON object of template variable overrides. Use exact env var names
+            (PARTITION, ACCOUNT, GPUS_PER_NODE). "TIME" overrides the time limit.
+            Example: '{"PARTITION":"dev-g","ACCOUNT":"FOO","TIME":"02:00:00","GPUS_PER_NODE":2}'
     """
     _setup_logging(verbose)
 
@@ -284,7 +289,29 @@ def schedule_evals(
     hours_with_margin = max(1, int(math.ceil(minutes_with_margin / 60)))
     hours_with_margin = max(hours_with_margin, 3)
     hours_with_margin = min(hours_with_margin, 23)
-    time_limit = f"{hours_with_margin:02d}:59:00"
+    computed_time = f"{hours_with_margin:02d}:59:00"
+    time_limit = computed_time
+
+    # Apply slurm_template_var overrides (JSON object)
+    if slurm_template_var:
+        try:
+            opts = json.loads(slurm_template_var)
+        except json.JSONDecodeError as e:
+            raise ValueError(
+                f"slurm_template_var must be a valid JSON object: {e}"
+            ) from e
+        if not isinstance(opts, dict):
+            raise ValueError(
+                "slurm_template_var must be a JSON object, e.g. "
+                '{"PARTITION":"dev-g","ACCOUNT":"FOO","TIME":"02:00:00"}'
+            )
+        for key, value in opts.items():
+            if key.upper() == "TIME":
+                time_limit = str(value)
+                logging.info(f"Using time limit override: {time_limit}")
+            else:
+                os.environ[key] = str(value)
+                logging.info(f"Using slurm_template_var override: {key}={value}")
 
     # Log the calculated values
     logging.info("📊 Evaluation planning:")
@@ -397,18 +424,44 @@ def collect_results(
         _tg_cfg = yaml.safe_load(_f)
     task_metrics = _tg_cfg.get("task_metrics", {})
 
-    def _resolve_metric(task_name: str, result_dict: dict) -> float | None:
-        """Return the preferred metric value for task_name from result_dict."""
+    def _resolve_metric(
+        task_name: str, result_dict: dict
+    ) -> tuple[float | None, str | None]:
+        """Return (value, metric_name) for task_name from result_dict."""
+
+        # Skip non-metric keys; lm-eval uses suffixes like ",none" or ",remove_whitespace"
+        def _first_numeric(d: dict, *candidates: str) -> tuple[float | None, str | None]:
+            for c in candidates:
+                if c in d and isinstance(d[c], (int, float)):
+                    return float(d[c]), c
+            return None, None
+
+        def _first_matching_prefix(
+            d: dict, prefix: str
+        ) -> tuple[float | None, str | None]:
+            for k, v in d.items():
+                if (k == prefix or k.startswith(prefix + ",")) and isinstance(
+                    v, (int, float)
+                ):
+                    return float(v), k
+            return None, None
+
         preferred = task_metrics.get(task_name)
         if preferred is not None:
-            val = result_dict.get(f"{preferred},none")
-            if val is None:
-                val = result_dict.get(preferred)
-            return val
+            val, key = _first_numeric(result_dict, f"{preferred},none", preferred)
+            if val is not None:
+                return val, key
+            val, key = _first_matching_prefix(result_dict, preferred)
+            return val, key
+
         for metric in ["acc,none", "acc", "accuracy", "f1", "exact_match"]:
-            if metric in result_dict:
-                return result_dict[metric]
-        return None
+            val, key = _first_numeric(result_dict, metric)
+            if val is not None:
+                return val, key
+            val, key = _first_matching_prefix(result_dict, metric.split(",")[0])
+            if val is not None:
+                return val, key
+        return None, None
 
     results_path = Path(results_dir)
     if not results_path.exists():
@@ -489,7 +542,7 @@ def collect_results(
                         break
             if n_shot == "unknown" and global_n_shot is not None:
                 n_shot = global_n_shot
-            performance = _resolve_metric(group_name, group_results)
+            performance, metric_name = _resolve_metric(group_name, group_results)
             if performance is not None:
                 if check:
                     completed_jobs.add((model_name, group_name, n_shot))
@@ -499,6 +552,7 @@ def collect_results(
                         "task": group_name,
                         "n_shot": n_shot,
                         "performance": performance,
+                        "metric_name": metric_name if metric_name is not None else "",
                     }
                 )
                 # Skip per-task iteration when groups are present
@@ -552,7 +606,7 @@ def collect_results(
                     n_shot = global_n_shot
 
             # Get the primary metric (usually acc, acc_norm)
-            performance = _resolve_metric(task_name, task_results)
+            performance, metric_name = _resolve_metric(task_name, task_results)
 
             if performance is not None:
                 # Track completed job for check mode
@@ -565,6 +619,7 @@ def collect_results(
                         "task": task_name,
                         "n_shot": n_shot,
                         "performance": performance,
+                        "metric_name": metric_name if metric_name is not None else "",
                     }
                 )
             else:
