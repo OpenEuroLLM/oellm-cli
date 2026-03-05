@@ -19,6 +19,9 @@ dev = [
     "pytest-timeout>=2.3.1",
     "pre-commit",
 ]
+image = [
+    "lmms-eval>=0.2.4",
+]
 
 [project.scripts]
 oellm = "oellm.main:main"

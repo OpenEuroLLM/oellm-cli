@@ -1,6 +1,6 @@
-# OpenEuroLLM CLI (oellm)
+# ELLIOT Evaluation Platform
 
-A lightweight CLI for scheduling LLM evaluations across multiple HPC clusters using SLURM job arrays and Singularity containers.
+A multimodal evaluation framework for scheduling LLM and VLM evaluations across HPC clusters. Extends the original oellm-cli with image modality support and a plugin interface for adding new benchmarks and modalities.
 
 ## Features
 
@@ -8,7 +8,9 @@ A lightweight CLI for scheduling LLM evaluations across multiple HPC clusters us
 - **Collect results** and check for missing evaluations: `oellm collect-results`
 - **Task groups** for pre-defined evaluation suites with automatic dataset pre-downloading
 - **Multi-cluster support** with auto-detection (Leonardo, LUMI, JURECA)
-- **Automatic building and deployment of containers** 
+- **Image evaluation** via [lmms-eval](https://github.com/EvolvingLMMs-Lab/lmms-eval) (VQAv2, MMBench, MMMU, ChartQA, DocVQA, TextVQA, OCRBench, MathVista)
+- **Plugin interface** (`BaseTask` / `BaseMetric` / `BaseModelAdapter`) for adding new benchmarks without touching core scheduling logic
+- **Automatic building and deployment of containers**
 
 ## Quick Start
 
@@ -44,17 +46,40 @@ In case you do not want to rely on the containers provided on a given cluster or
 
 Task groups are pre-defined evaluation suites in [`task-groups.yaml`](oellm/resources/task-groups.yaml). Each group specifies tasks, their n-shot settings, and HuggingFace dataset mappings.
 
-Available task groups:
-- `open-sci-0.01` - Standard benchmarks (COPA, MMLU, HellaSwag, ARC, etc.)
-- `belebele-eu-5-shot` - Belebele European language tasks
-- `flores-200-eu-to-eng` / `flores-200-eng-to-eu` - Translation tasks
-- `global-mmlu-eu` - Global MMLU in EU languages
-- `mgsm-eu` - Multilingual GSM benchmarks
-- `generic-multilingual` - XWinograd, XCOPA, XStoryCloze
-- `include` - INCLUDE benchmarks
+### Text & Multilingual
 
-Super groups combine multiple task groups:
-- `oellm-multilingual` - All multilingual benchmarks combined
+| Group | Description | Engine |
+|---|---|---|
+| `open-sci-0.01` | COPA, MMLU, HellaSwag, ARC, etc. | lm-eval |
+| `belebele-eu-5-shot` | Belebele in 23 European languages | lm-eval |
+| `flores-200-eu-to-eng` | EU → English translation | lighteval |
+| `flores-200-eng-to-eu` | English → EU translation | lighteval |
+| `global-mmlu-eu` | Global MMLU in EU languages | lm-eval |
+| `mgsm-eu` | Multilingual GSM8K | lm-eval |
+| `generic-multilingual` | XWinograd, XCOPA, XStoryCloze | lm-eval |
+| `include` | INCLUDE benchmarks (44 languages) | lm-eval |
+
+Super groups:
+- `oellm-multilingual` — all multilingual benchmarks combined
+
+### Image (lmms-eval)
+
+| Group | Benchmarks | Engine |
+|---|---|---|
+| `image-vqa` | VQAv2, MMBench, MMMU, ChartQA, DocVQA, TextVQA, OCRBench, MathVista | lmms-eval |
+
+Image evaluation requires a container or venv with `lmms-eval` installed. Install the optional dependency:
+
+```bash
+pip install "oellm[image]"
+```
+
+By default, the `llava_hf` model adapter is used (suitable for most HuggingFace VLMs). Override via `--slurm_template_var`:
+
+```bash
+oellm schedule-eval --models "path/to/vlm" --task_groups "image-vqa" \
+  --slurm_template_var '{"LMMS_MODEL_TYPE":"qwen_vl_chat"}'
+```
 
 ```bash
 # Use a task group
@@ -65,6 +90,9 @@ oellm schedule-eval --models "model-name" --task_groups "belebele-eu-5-shot,glob
 
 # Use a super group
 oellm schedule-eval --models "model-name" --task_groups "oellm-multilingual"
+
+# Image evaluation
+oellm schedule-eval --models "path/to/vlm" --task_groups "image-vqa"
 ```
 
 ## SLURM Overrides
@@ -158,12 +186,44 @@ git clone https://github.com/OpenEuroLLM/oellm-cli.git
 cd oellm-cli
 uv sync --extra dev
 
-# Run dataset validation tests
+# Run all unit tests
+uv run pytest tests/ -v
+
+# Run dataset validation tests (requires network access)
 uv run pytest tests/test_datasets.py -v
 
 # Download-only mode for testing
 uv run oellm schedule-eval --models "EleutherAI/pythia-160m" --task_groups "open-sci-0.01" --download_only
 ```
+
+## Plugin Interface
+
+The `oellm.core` package provides abstract base classes for extending the platform without modifying core scheduling logic:
+
+```python
+from oellm.core import BaseTask, BaseMetric, BaseModelAdapter
+from oellm.task_groups import DatasetSpec
+
+# Register a new benchmark (one-liner if it's already in lmms-eval)
+class MyTask(BaseTask):
+    @property
+    def name(self) -> str:
+        return "my_benchmark"
+
+    @property
+    def suite(self) -> str:
+        return "lmms_eval"  # or "lm_eval" / "lighteval"
+
+    @property
+    def n_shots(self) -> list[int]:
+        return [0]
+
+    @property
+    def dataset_specs(self) -> list[DatasetSpec]:
+        return [DatasetSpec(repo_id="org/my-dataset")]
+```
+
+See `oellm/core/` for full interface documentation.
 
 ## Deploying containers
 

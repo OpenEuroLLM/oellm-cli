@@ -429,6 +429,16 @@ def collect_results(
     ) -> tuple[float | None, str | None]:
         """Return (value, metric_name) for task_name from result_dict."""
 
+        # Normalise lmms-eval task-scoped metric keys so lm-eval and lmms-eval
+        # output is handled identically.  lmms-eval writes keys like
+        # "vqav2/vqa_score,none"; strip the "task_name/" prefix so the lookup
+        # below sees "vqa_score,none" regardless of engine.  Keys without "/"
+        # (lm-eval format) are passed through unchanged.
+        result_dict = {
+            (k.split("/", 1)[1] if "/" in k else k): v
+            for k, v in result_dict.items()
+        }
+
         # Skip non-metric keys; lm-eval uses suffixes like ",none" or ",remove_whitespace"
         def _first_numeric(d: dict, *candidates: str) -> tuple[float | None, str | None]:
             for c in candidates:
@@ -500,8 +510,10 @@ def collect_results(
         with open(json_file) as f:
             data = json.load(f)
 
-        # Extract model name/path
-        model_name = data.get("model_name", "unknown")
+        # Extract model name/path.
+        # lmms-eval sets model_name to the adapter type (e.g. "llava_hf"),
+        # not the checkpoint path; the actual path is in model_name_or_path.
+        model_name = data.get("model_name_or_path") or data.get("model_name", "unknown")
 
         # Extract results for each task
         results = data.get("results", {})

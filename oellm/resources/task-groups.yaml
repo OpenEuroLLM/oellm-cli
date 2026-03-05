@@ -10,6 +10,15 @@ task_metrics:
   commonsense_qa: acc
   hellaswag: acc_norm
   piqa: acc_norm
+  # lmms-eval image benchmark metrics
+  vqav2_val_all: vqa_score
+  mmbench_en_dev: acc
+  mmmu_val: acc
+  chartqa: relaxed_accuracy
+  docvqa_val: anls
+  textvqa_val: acc
+  ocrbench: score
+  mathvista_testmini: acc
 
 task_groups:
   open-sci-0.01:
@@ -292,6 +301,29 @@ task_groups:
         subset: Turkish
       - task: include_base_44_ukrainian
         subset: Ukrainian
+
+  # ── Image Modality (lmms-eval) ────────────────────────────────────────────
+  image-vqa:
+    description: "Image VQA benchmarks via lmms-eval (VQAv2, MMBench, MMMU, ChartQA, DocVQA, TextVQA, OCRBench, MathVista)"
+    suite: lmms_eval
+    n_shots: [0]
+    tasks:
+      - task: vqav2_val_all
+        dataset: HuggingFaceM4/VQAv2
+      - task: mmbench_en_dev
+        dataset: HuggingFaceM4/MMBench_00
+      - task: mmmu_val
+        dataset: MMMU/MMMU
+      - task: chartqa
+        dataset: HuggingFaceM4/ChartQA
+      - task: docvqa_val
+        dataset: eliolio/docvqa
+      - task: textvqa_val
+        dataset: facebook/textvqa
+      - task: ocrbench
+        dataset: echo840/OCRBench
+      - task: mathvista_testmini
+        dataset: AI4Math/MathVista
 
 super_groups:
   oellm-multilingual:

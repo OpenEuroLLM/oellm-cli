@@ -157,6 +157,35 @@ do
                         ${{LIMIT:+--max-samples $LIMIT}}
             fi
             ;;
+        lmms_eval|lmms-eval)
+            # lmms-eval is used for image/video/audio benchmarks.
+            # Model type defaults to llava_hf (HuggingFace LLaVA-style VLMs).
+            # Override via LMMS_MODEL_TYPE in clusters.yaml or --slurm_template_var.
+            LMMS_MODEL_TYPE="${{LMMS_MODEL_TYPE:-llava_hf}}"
+            OUTPUT_JSON="{evals_dir}/$(openssl rand -hex 5).json"
+
+            if [ -n "$VENV_PATH" ]; then
+                source "$VENV_PATH/bin/activate"
+                python -m lmms_eval \
+                    --model "$LMMS_MODEL_TYPE" \
+                    --model_args "pretrained=$model_path" \
+                    --tasks "$task_path" \
+                    --num_fewshot "$n_shot" \
+                    --output_path "$OUTPUT_JSON" \
+                    ${{LIMIT:+--limit $LIMIT}}
+            else
+                singularity exec $SINGULARITY_ARGS \
+                    --bind $BIND_PATHS \
+                    $EVAL_SIF_PATH \
+                    python -m lmms_eval \
+                        --model "$LMMS_MODEL_TYPE" \
+                        --model_args "pretrained=$model_path" \
+                        --tasks "$task_path" \
+                        --num_fewshot "$n_shot" \
+                        --output_path "$OUTPUT_JSON" \
+                        ${{LIMIT:+--limit $LIMIT}}
+            fi
+            ;;
         *)
             echo "[warning] Unknown evaluation suite '$eval_suite'. Skipping."
             ;;

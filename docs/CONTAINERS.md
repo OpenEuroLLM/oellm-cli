@@ -13,6 +13,23 @@ Apptainer containers are built automatically via GitHub Actions and stored on Hu
 
 Images are compressed with zstd (level 3) via mksquashfs for a good balance of size and build speed.
 
+## Image Evaluation (lmms-eval)
+
+Image benchmarks (`suite: lmms_eval`) require `lmms-eval` to be available in the execution environment. There are two ways to provide it:
+
+**Option 1 — Custom venv (recommended for development):**
+Install `lmms-eval` via `requirements-venv.txt` and pass `--venv_path` to the CLI. See [VENV.md](VENV.md) for setup instructions.
+
+**Option 2 — Container with lmms-eval:**
+Build a container `.def` file that includes `lmms-eval` alongside `lm-eval`:
+
+```singularity
+%post
+    pip install lm-eval torch transformers accelerate "datasets<4.0.0" "lmms-eval>=0.2.4"
+```
+
+Then set `EVAL_CONTAINER_IMAGE` in `clusters.yaml` to point to this image.
+
 ## Adding a New Cluster
 
 1. Create `containers/<cluster>.def` with the appropriate base image:
