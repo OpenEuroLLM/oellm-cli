@@ -91,6 +91,16 @@ do
         fi
     fi
 
+    # When using --contain, provide a writable home for prediction caches
+    SINGULARITY_HOME_ARG=""
+    if [[ "$SINGULARITY_ARGS" == *"--contain"* ]]; then
+        JOB_HOME="$EVAL_BASE_DIR/$USER/container_home/$SLURM_JOB_ID"
+        mkdir -p "$JOB_HOME"
+        SINGULARITY_HOME_ARG="--home $JOB_HOME"
+    fi
+
+    GPU_DEVICES=$(seq -s, 0 $(($GPUS_PER_NODE - 1)))
+
     suite_normalized=$(echo "$eval_suite" | tr '[:upper:]' '[:lower:]')
 
     # Helper function to run Python commands in the appropriate environment
@@ -100,8 +110,10 @@ do
             python "$@"
         else
             singularity exec $SINGULARITY_ARGS \
+                $SINGULARITY_HOME_ARG \
                 --bind $BIND_PATHS \
                 $EVAL_SIF_PATH \
+                env CUDA_VISIBLE_DEVICES=$GPU_DEVICES \
                 python "$@"
         fi
     }}
@@ -142,17 +154,17 @@ do
                 lighteval accelerate \
                     "model_name=$model_path,trust_remote_code=True" \
                     "$LIGHT_TASK_ARG" \
-                    --load-tasks-multilingual \
                     --output-dir "$RESULTS_SUBDIR" \
                     ${{LIMIT:+--max-samples $LIMIT}}
             else
                 singularity exec $SINGULARITY_ARGS \
+                    $SINGULARITY_HOME_ARG \
                     --bind $BIND_PATHS \
                     $EVAL_SIF_PATH \
+                    env CUDA_VISIBLE_DEVICES=$GPU_DEVICES \
                     lighteval accelerate \
                         "model_name=$model_path,trust_remote_code=True" \
                         "$LIGHT_TASK_ARG" \
-                        --load-tasks-multilingual \
                         --output-dir "$RESULTS_SUBDIR" \
                         ${{LIMIT:+--max-samples $LIMIT}}
             fi

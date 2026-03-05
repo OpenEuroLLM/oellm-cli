@@ -10,6 +10,17 @@ task_metrics:
   commonsense_qa: acc
   hellaswag: acc_norm
   piqa: acc_norm
+  social_iqa: acc
+  agieval_lsat_ar: acc
+  wsc273: acc
+  bigbench_language_identification_multiple_choice: acc
+  squadv2: f1
+  coqa: f1
+  bigbench_qa_wikidata_generate_until: exact_match
+  bigbench_dyck_languages_generate_until: exact_match
+  bigbench_operators_generate_until: exact_match
+  bigbench_repeat_copy_logic_generate_until: exact_match
+  bigbench_cs_algorithms_generate_until: exact_match
 
 task_groups:
   open-sci-0.01:
@@ -292,6 +303,87 @@ task_groups:
         subset: Turkish
       - task: include_base_44_ukrainian
         subset: Ukrainian
+
+  dclm-core-22:
+    description: "DCLM core 22 evaluation tasks (lm-eval-harness, matching LLM Foundry task types)"
+    suite: lm-eval-harness
+    tasks:
+      - task: agieval_lsat_ar
+        n_shots: [3]
+        dataset: hails/agieval-lsat-ar
+      - task: arc_easy
+        n_shots: [10]
+        dataset: allenai/ai2_arc
+        subset: ARC-Easy
+      - task: arc_challenge
+        n_shots: [10]
+        dataset: allenai/ai2_arc
+        subset: ARC-Challenge
+      - task: boolq
+        n_shots: [10]
+        dataset: aps/super_glue
+        subset: boolq
+      - task: commonsense_qa
+        n_shots: [10]
+        dataset: tau/commonsense_qa
+      - task: copa
+        n_shots: [0]
+        dataset: aps/super_glue
+        subset: copa
+      - task: hellaswag
+        n_shots: [0, 10]
+        dataset: Rowan/hellaswag
+      - task: openbookqa
+        n_shots: [0]
+        dataset: allenai/openbookqa
+        subset: main
+      - task: piqa
+        n_shots: [10]
+        dataset: baber/piqa
+      - task: bigbench_language_identification_multiple_choice
+        n_shots: [10]
+        dataset: hails/bigbench
+        subset: language_identification_zero_shot
+      - task: winogrande
+        n_shots: [0]
+        dataset: allenai/winogrande
+        subset: winogrande_xl
+      - task: wsc273
+        n_shots: [0]
+        dataset: winograd_wsc
+      - task: lambada_openai
+        n_shots: [0]
+        dataset: EleutherAI/lambada_openai
+      - task: bigbench_qa_wikidata_generate_until
+        n_shots: [10]
+        dataset: hails/bigbench
+        subset: qa_wikidata_zero_shot
+      - task: bigbench_dyck_languages_generate_until
+        n_shots: [10]
+        dataset: hails/bigbench
+        subset: dyck_languages_zero_shot
+      - task: bigbench_operators_generate_until
+        n_shots: [10]
+        dataset: hails/bigbench
+        subset: operators_zero_shot
+      - task: bigbench_repeat_copy_logic_generate_until
+        n_shots: [10]
+        dataset: hails/bigbench
+        subset: repeat_copy_logic_zero_shot
+      - task: bigbench_cs_algorithms_generate_until
+        n_shots: [10]
+        dataset: hails/bigbench
+        subset: cs_algorithms_zero_shot
+      - task: coqa
+        n_shots: [0]
+        dataset: EleutherAI/coqa
+      - task: squadv2
+        n_shots: [10]
+        dataset: rajpurkar/squad_v2
+      # TODO: jeopardy is not available in lm-eval-harness.
+      # - task: jeopardy
+      #   n_shots: [10]
+      #   dataset: openaccess-ai-collective/jeopardy
 
 super_groups:
   oellm-multilingual:
