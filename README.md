@@ -97,10 +97,10 @@ After evaluations complete, collect results into a CSV:
 
 ```bash
 # Basic collection
-oellm collect-results /path/to/eval-output-dir
+oellm collect-results --results_dir /path/to/eval-output-dir
 
 # Check for missing evaluations and create a CSV for re-running them
-oellm collect-results /path/to/eval-output-dir --check --output_csv results.csv
+oellm collect-results --results_dir /path/to/eval-output-dir --check --output_csv results.csv
 ```
 
 The `--check` flag compares completed results against `jobs.csv` and outputs a `results_missing.csv` that can be used to re-schedule failed jobs:
@@ -149,7 +149,7 @@ We support: Leonardo, Lumi, and Jureca
 ```bash
 oellm schedule-eval --help
 ```
-
+ss
 ## Development
 
 ```bash
