@@ -120,6 +120,8 @@ task_groups:
         subset: spa_Latn
       - task: belebele_swe_Latn
         subset: swe_Latn
+      - task: belebele_nob_Latn
+        subset: nob_Latn
   flores-200-eu-to-eng:
     description: "Flores 200 EU to English translation"
     suite: lighteval
