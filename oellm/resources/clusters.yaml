@@ -42,6 +42,15 @@ lumi:
   EVAL_CONTAINER_IMAGE: "eval_env-lumi.sif"
   SINGULARITY_ARGS: "--rocm"
 
+snellius:
+  hostname_pattern: "*.snellius.surf.nl"
+  EVAL_BASE_DIR: "/projects/0/prjs1874/oellm_shared_evals"
+  PARTITION: "gpu_h100"
+  ACCOUNT: "thomaso"
+  QUEUE_LIMIT: 30
+  EVAL_CONTAINER_IMAGE: "eval_env-snellius.sif"
+  SINGULARITY_ARGS: "--nv --contain"
+
 ci: # lambda labs
   hostname_pattern:
     - "ip-*"
