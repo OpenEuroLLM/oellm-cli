@@ -7,7 +7,7 @@ A lightweight CLI for scheduling LLM evaluations across multiple HPC clusters us
 - **Schedule evaluations** on multiple models and tasks: `oellm schedule-eval`
 - **Collect results** and check for missing evaluations: `oellm collect-results`
 - **Task groups** for pre-defined evaluation suites with automatic dataset pre-downloading
-- **Multi-cluster support** with auto-detection (Leonardo, LUMI, JURECA)
+- **Multi-cluster support** with auto-detection (Leonardo, LUMI, JURECA, Snellius)
 - **Automatic building and deployment of containers** 
 
 ## Quick Start
@@ -33,7 +33,7 @@ oellm schedule-eval \
 ```
 
 This will automatically:
-- Detect your current HPC cluster (Leonardo, LUMI, or JURECA)
+- Detect your current HPC cluster (Leonardo, LUMI, JURECA, or Snellius)
 - Download and cache the specified models
 - Pre-download datasets for known tasks (see warning below)
 - Generate and submit a SLURM job array with appropriate cluster-specific resources and using containers built for this cluster
@@ -142,7 +142,7 @@ export UV_TOOL_DIR="/p/project1/<project>/$USER/.cache/uv-tool-cache"
 ```
 
 ## Supported Clusters:
-We support: Leonardo, Lumi, and Jureca
+We support: Leonardo, Lumi, Jureca, Jupiter, and Snellius
 
 ## CLI Options
 
