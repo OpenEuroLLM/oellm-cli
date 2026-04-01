@@ -88,6 +88,8 @@ task_groups:
         subset: eng_Latn
       - task: belebele_est_Latn
         subset: est_Latn
+      - task: belebele_eus_Latn
+        subset: eus_Latn
       - task: belebele_fin_Latn
         subset: fin_Latn
       - task: belebele_fra_Latn

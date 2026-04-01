@@ -40,7 +40,7 @@ lumi:
   ACCOUNT: "project_462000963"
   QUEUE_LIMIT: 210
   EVAL_CONTAINER_IMAGE: "eval_env-lumi.sif"
-  SINGULARITY_ARGS: "--rocm"
+  SINGULARITY_ARGS: "--rocm --env ROCR_VISIBLE_DEVICES=$ROCR_VISIBLE_DEVICES"
 
 snellius:
   hostname_pattern: "*.snellius.surf.nl"

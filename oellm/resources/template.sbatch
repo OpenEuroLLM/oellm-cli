@@ -21,6 +21,9 @@ export HF_HOME=$HF_HOME
 export HF_DATASETS_CACHE="$HF_HOME/datasets"
 export HF_HUB_OFFLINE={hf_hub_offline}
 
+# For ROCm clusters: expose allocated GPUs to the container (falls back to GPU 0 if not set by SLURM)
+export ROCR_VISIBLE_DEVICES=$${ROCR_VISIBLE_DEVICES:-$${SLURM_JOB_GPUS:-0}}
+
 # Path to the shared Singularity image that contains all runtime deps (container mode)
 export EVAL_SIF_PATH="$EVAL_BASE_DIR/$EVAL_CONTAINER_IMAGE"
 
