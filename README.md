@@ -14,7 +14,7 @@ A lightweight CLI for scheduling LLM evaluations across multiple HPC clusters us
 
 **Prerequisites:**
 - Install [uv](https://docs.astral.sh/uv/#installation)
-- Set the `HF_HOME` environment variable to point to your HuggingFace cache directory (e.g. `export HF_HOME="/path/to/your/hf_home"`). This is where models and datasets will be cached. Compute nodes typically have no internet access, so all assets must be pre-downloaded into this directory.
+- Set the `HF_HOME` environment variable to point to your HuggingFace cache directory (e.g. `export HF_HOME="/path/to/your/hf_home"`, on LUMI use the path `/scratch/project_462000963/cache/huggingface`). This is where models and datasets will be cached. Compute nodes typically have no internet access, so all assets must be pre-downloaded into this directory.
 
 ```bash
 # Install the package
@@ -97,10 +97,10 @@ After evaluations complete, collect results into a CSV:
 
 ```bash
 # Basic collection
-oellm collect-results /path/to/eval-output-dir
+oellm collect-results --results_dir /path/to/eval-output-dir
 
 # Check for missing evaluations and create a CSV for re-running them
-oellm collect-results /path/to/eval-output-dir --check --output_csv results.csv
+oellm collect-results --results_dir /path/to/eval-output-dir --check true --output_csv results.csv
 ```
 
 The `--check` flag compares completed results against `jobs.csv` and outputs a `results_missing.csv` that can be used to re-schedule failed jobs:
