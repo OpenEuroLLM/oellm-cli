@@ -152,7 +152,9 @@ def _expand_task_groups(group_names: Iterable[str]) -> list[TaskGroupResult]:
                 shots = [int(s) for s in (t.n_shots or [])]
                 task_suite = t.suite or suite
                 for shot in shots:
-                    results.append(TaskGroupResult(task=t.name, n_shot=shot, suite=task_suite))
+                    results.append(
+                        TaskGroupResult(task=t.name, n_shot=shot, suite=task_suite)
+                    )
         else:
             for g in group.task_groups:
                 suite = g.suite

@@ -404,8 +404,6 @@ task_groups:
       - task: GPQADiamond
         n_shots: [0]
         suite: evalchemy
-        dataset: Idavidrein/gpqa
-        subset: gpqa_diamond
       - task: MATH500
         n_shots: [0]
         suite: evalchemy
