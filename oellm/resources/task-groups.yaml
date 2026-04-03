@@ -387,6 +387,33 @@ task_groups:
       #   n_shots: [10]
       #   dataset: openaccess-ai-collective/jeopardy
 
+  reasoning:
+    description: "Reasoning tasks: GSM8k (4-shot), IFEval (0-shot), MBPP (3-shot), GPQA-Diamond (0-shot), MATH500 (0-shot), LiveCodeBench (0-shot)"
+    suite: lm-eval-harness
+    tasks:
+      - task: gsm8k
+        n_shots: [4]
+        dataset: openai/gsm8k
+        subset: main
+      - task: ifeval
+        n_shots: [0]
+        dataset: google/IFEval
+      - task: mbpp
+        n_shots: [3]
+        dataset: google-research-datasets/mbpp
+      - task: GPQADiamond
+        n_shots: [0]
+        suite: evalchemy
+        dataset: Idavidrein/gpqa
+        subset: gpqa_diamond
+      - task: MATH500
+        n_shots: [0]
+        suite: evalchemy
+      - task: LiveCodeBench
+        n_shots: [0]
+        suite: evalchemy
+        dataset: livecodebench/code_generation_lite
+
 super_groups:
   oellm-multilingual:
     description: "Combined Belebele EU set plus multilingual benchmarks"

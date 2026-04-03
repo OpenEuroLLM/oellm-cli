@@ -94,13 +94,20 @@ do
 
     # When using --contain, provide a writable home for prediction caches
     SINGULARITY_HOME_ARG=""
+    SINGULARITY_ENV_ARGS=""
     if [[ "$SINGULARITY_ARGS" == *"--contain"* ]]; then
         JOB_HOME="$EVAL_BASE_DIR/$USER/container_home/$SLURM_JOB_ID"
         mkdir -p "$JOB_HOME"
         SINGULARITY_HOME_ARG="--home $JOB_HOME"
+        SINGULARITY_ENV_ARGS="--env HF_HOME=$HF_HOME --env HF_DATASETS_CACHE=$HF_DATASETS_CACHE --env HF_HUB_OFFLINE=$HF_HUB_OFFLINE --env TRANSFORMERS_OFFLINE=$TRANSFORMERS_OFFLINE --env HF_ALLOW_CODE_EVAL=$HF_ALLOW_CODE_EVAL --env NLTK_DATA=$NLTK_DATA --env GIT_PYTHON_REFRESH=$GIT_PYTHON_REFRESH --env GIT_PYTHON_GIT_EXECUTABLE=$GIT_PYTHON_GIT_EXECUTABLE"
     fi
 
     GPU_DEVICES=$(seq -s, 0 $(($GPUS_PER_NODE - 1)))
+
+    MULTI_GPU_FLAG=""
+    if [ "$GPUS_PER_NODE" -gt 1 ]; then
+        MULTI_GPU_FLAG="--multi-gpu"
+    fi
 
     suite_normalized=$(echo "$eval_suite" | tr '[:upper:]' '[:lower:]')
 
@@ -111,6 +118,7 @@ do
             python "$@"
         else
             singularity exec $SINGULARITY_ARGS \
+                $SINGULARITY_ENV_ARGS \
                 $SINGULARITY_HOME_ARG \
                 --bind $BIND_PATHS \
                 $EVAL_SIF_PATH \
@@ -161,6 +169,7 @@ do
                     ${{LIMIT:+--max-samples $LIMIT}}
             else
                 singularity exec $SINGULARITY_ARGS \
+                    $SINGULARITY_ENV_ARGS \
                     $SINGULARITY_HOME_ARG \
                     --bind $BIND_PATHS \
                     $EVAL_SIF_PATH \
@@ -171,6 +180,37 @@ do
                         --load-tasks-multilingual \
                         --output-dir "$RESULTS_SUBDIR" \
                         ${{LIMIT:+--max-samples $LIMIT}}
+            fi
+            ;;
+        evalchemy)
+            EVALCHEMY_WORK_DIR="${{EVALCHEMY_DIR:-/opt/evalchemy}}"
+            RESULTS_SUBDIR="{evals_dir}/$(openssl rand -hex 5)"
+            if [ -n "$VENV_PATH" ]; then
+                source "$EVALCHEMY_WORK_DIR/.venv/bin/activate"
+                cd "$EVALCHEMY_WORK_DIR"
+                accelerate launch --num-processes "$GPUS_PER_NODE" --num-machines 1 \
+                    $MULTI_GPU_FLAG -m eval.eval \
+                    --model hf \
+                    --tasks "$task_path" \
+                    --model_args "trust_remote_code=True,pretrained=$model_path" \
+                    --batch_size auto \
+                    --output_path "$RESULTS_SUBDIR" \
+                    ${{LIMIT:+--limit $LIMIT}}
+            else
+                singularity exec $SINGULARITY_ARGS \
+                    $SINGULARITY_ENV_ARGS \
+                    $SINGULARITY_HOME_ARG \
+                    --bind $BIND_PATHS \
+                    $EVAL_SIF_PATH \
+                    env CUDA_VISIBLE_DEVICES=$GPU_DEVICES \
+                    evalchemy-eval launch --num-processes "$GPUS_PER_NODE" --num-machines 1 \
+                    $MULTI_GPU_FLAG -m eval.eval \
+                    --model hf \
+                    --tasks "$task_path" \
+                    --model_args "trust_remote_code=True,pretrained=$model_path" \
+                    --batch_size auto \
+                    --output_path "$RESULTS_SUBDIR" \
+                    ${{LIMIT:+--limit $LIMIT}}
             fi
             ;;
         *)
