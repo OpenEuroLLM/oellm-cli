@@ -14,7 +14,7 @@ From: nvcr.io/nvidia/pytorch:25.06-py3
     uv --version
 
     uv pip install --system --break-system-packages lm-eval \
-        wandb sentencepiece tiktoken accelerate langdetect immutabledict
+        wandb sentencepiece tiktoken accelerate
 
     # lighteval as isolated tool (avoids dependency conflicts)
     export UV_TOOL_DIR=/opt/uv-tools
@@ -39,44 +39,12 @@ PY
     # SSL cert fix for --contain mode
     update-ca-certificates 2>/dev/null || true
 
-    # Evalchemy for GPQADiamond, MATH500, LiveCodeBench
-    git clone https://github.com/Ali-Elganzory/evalchemy.git /opt/evalchemy
-    cd /opt/evalchemy && git checkout 54ac97648230c4c3a22c3a2b93068b5a4e573f8d
-
-    # Isolated venv that inherits system torch/transformers/accelerate from the container
-    uv venv /opt/evalchemy-venv --python 3.12 --system-site-packages
-    . /opt/evalchemy-venv/bin/activate
-
-    # Custom lm-eval fork (according to evalchemy repo)
-    pip install "lm-eval @ git+https://github.com/EtashGuha/lm-evaluation-harness@etashg/tokenize_fix"
-
-    # Pin exact versions of packages that directly affect benchmark results
-    pip install \
-        "scipy==1.17.0" \
-        "datasets==3.6.0" \
-        "transformers==4.57.6" \
-        "accelerate==1.12.0" \
-        "bespokelabs-curator==0.1.26" \
-        "sqlalchemy"
-
-    deactivate
-
-    # Wrapper so singularity exec can invoke evalchemy without knowing internal venv paths
-    cat > /usr/local/bin/evalchemy-eval << 'WRAPPER'
-#!/bin/bash
-source /opt/evalchemy-venv/bin/activate
-cd /opt/evalchemy
-exec accelerate "$@"
-WRAPPER
-    chmod +x /usr/local/bin/evalchemy-eval
-
 %environment
     export PATH=/usr/local/bin:$PATH
     export UV_TOOL_BIN_DIR=/usr/local/bin
     export UV_TOOL_DIR=/opt/uv-tools
     export NLTK_DATA=/opt/nltk_data
     export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
-    export EVALCHEMY_DIR=/opt/evalchemy
 
 %runscript
     exec bash "$@"
