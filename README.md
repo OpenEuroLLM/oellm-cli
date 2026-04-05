@@ -7,14 +7,14 @@ A lightweight CLI for scheduling LLM evaluations across multiple HPC clusters us
 - **Schedule evaluations** on multiple models and tasks: `oellm schedule-eval`
 - **Collect results** and check for missing evaluations: `oellm collect-results`
 - **Task groups** for pre-defined evaluation suites with automatic dataset pre-downloading
-- **Multi-cluster support** with auto-detection (Leonardo, LUMI, JURECA)
+- **Multi-cluster support** with auto-detection (Leonardo, LUMI, JURECA, Snellius)
 - **Automatic building and deployment of containers** 
 
 ## Quick Start
 
 **Prerequisites:**
 - Install [uv](https://docs.astral.sh/uv/#installation)
-- Set the `HF_HOME` environment variable to point to your HuggingFace cache directory (e.g. `export HF_HOME="/path/to/your/hf_home"`). This is where models and datasets will be cached. Compute nodes typically have no internet access, so all assets must be pre-downloaded into this directory.
+- Set the `HF_HOME` environment variable to point to your HuggingFace cache directory (e.g. `export HF_HOME="/path/to/your/hf_home"`, on LUMI use the path `/scratch/project_462000963/cache/huggingface`). This is where models and datasets will be cached. Compute nodes typically have no internet access, so all assets must be pre-downloaded into this directory.
 
 ```bash
 # Install the package
@@ -33,7 +33,7 @@ oellm schedule-eval \
 ```
 
 This will automatically:
-- Detect your current HPC cluster (Leonardo, LUMI, or JURECA)
+- Detect your current HPC cluster (Leonardo, LUMI, JURECA, or Snellius)
 - Download and cache the specified models
 - Pre-download datasets for known tasks (see warning below)
 - Generate and submit a SLURM job array with appropriate cluster-specific resources and using containers built for this cluster
@@ -67,6 +67,26 @@ oellm schedule-eval --models "model-name" --task_groups "belebele-eu-5-shot,glob
 oellm schedule-eval --models "model-name" --task_groups "oellm-multilingual"
 ```
 
+## Running Locally (without SLURM)
+
+The `--local` flag lets you run evaluations directly on your machine without a cluster or Singularity container. It generates the same eval script and executes it with bash, injecting fake SLURM environment variables so all tasks run sequentially in a single process. This is useful for testing that tasks and models are correctly configured before submitting to a cluster.
+
+```bash
+# 1. Add eval dependencies to the project venv
+uv pip install lm-eval torch transformers accelerate "datasets<4.0.0"
+
+# 2. Run evaluations locally — useful for smoke-testing with a small sample
+oellm schedule-eval \
+    --models "EleutherAI/pythia-160m" \
+    --tasks "gsm8k" \
+    --n_shot 0 \
+    --venv_path .venv \
+    --local true \
+    --limit 1
+```
+
+Results are written to `./oellm-output/<timestamp>/results/`.
+
 ## SLURM Overrides
 
 Override cluster defaults (partition, account, time limit, etc.) with `--slurm_template_var` (JSON object):
@@ -97,10 +117,10 @@ After evaluations complete, collect results into a CSV:
 
 ```bash
 # Basic collection
-oellm collect-results /path/to/eval-output-dir
+oellm collect-results --results_dir /path/to/eval-output-dir
 
 # Check for missing evaluations and create a CSV for re-running them
-oellm collect-results /path/to/eval-output-dir --check --output_csv results.csv
+oellm collect-results --results_dir /path/to/eval-output-dir --check true --output_csv results.csv
 ```
 
 The `--check` flag compares completed results against `jobs.csv` and outputs a `results_missing.csv` that can be used to re-schedule failed jobs:
@@ -142,7 +162,7 @@ export UV_TOOL_DIR="/p/project1/<project>/$USER/.cache/uv-tool-cache"
 ```
 
 ## Supported Clusters:
-We support: Leonardo, Lumi, and Jureca
+We support: Leonardo, Lumi, Jureca, Jupiter, and Snellius
 
 ## CLI Options
 

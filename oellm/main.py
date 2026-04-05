@@ -55,6 +55,8 @@ def schedule_evals(
     skip_checks: bool = False,
     trust_remote_code: bool = True,
     venv_path: str | None = None,
+    lm_eval_include_path: str | None = None,
+    local: bool = False,
     slurm_template_var: str | None = None,
 ) -> None:
     """
@@ -87,13 +89,37 @@ def schedule_evals(
         trust_remote_code: If True, trust remote code when downloading datasets. Default is True. Workflow might fail if set to False.
         venv_path: Path to a Python virtual environment. If provided, evaluations run directly using
             this venv instead of inside a Singularity/Apptainer container.
+        lm_eval_include_path: Path to a directory containing custom lm_eval task YAML definitions.
+            Passed as --include_path to lm_eval. Defaults to the bundled custom_lm_eval_tasks
+            directory shipped with the package, which overrides broken upstream tasks
+            (e.g. mgsm_native_cot_fr/de/es). Override to point at additional task YAMLs.
+        local: If True, run evaluations directly on the local machine using bash instead of
+            submitting to SLURM. Requires --venv_path. Skips cluster environment detection and
+            runs all evaluations sequentially in a single process.
         slurm_template_var: JSON object of template variable overrides. Use exact env var names
             (PARTITION, ACCOUNT, GPUS_PER_NODE). "TIME" overrides the time limit.
             Example: '{"PARTITION":"dev-g","ACCOUNT":"FOO","TIME":"02:00:00","GPUS_PER_NODE":2}'
     """
     _setup_logging(verbose)
 
-    _load_cluster_env()
+    if local:
+        if not venv_path:
+            raise ValueError(
+                "--local requires --venv_path. Provide a path to a Python virtual "
+                "environment with lm_eval/lighteval installed."
+            )
+        local_output = str(Path.cwd() / "oellm-output")
+        os.environ.setdefault("EVAL_BASE_DIR", local_output)
+        os.environ.setdefault("EVAL_OUTPUT_DIR", local_output)
+        os.environ.setdefault("QUEUE_LIMIT", "1")
+        os.environ.setdefault("GPUS_PER_NODE", "1")
+        os.environ.setdefault("PARTITION", "local")
+        os.environ.setdefault("ACCOUNT", "local")
+        os.environ.setdefault("EVAL_CONTAINER_IMAGE", "")
+        os.environ.setdefault("SINGULARITY_ARGS", "")
+        os.environ.setdefault("HF_HOME", str(Path.home() / ".cache" / "huggingface"))
+    else:
+        _load_cluster_env()
 
     use_venv = venv_path is not None
 
@@ -241,7 +267,7 @@ def schedule_evals(
         return None
 
     remaining_queue_capacity = (
-        int(os.environ.get("QUEUE_LIMIT", 250)) - _num_jobs_in_queue()
+        1 if local else int(os.environ.get("QUEUE_LIMIT", 250)) - _num_jobs_in_queue()
     )
 
     if remaining_queue_capacity <= 0 and not dry_run:
@@ -341,6 +367,12 @@ def schedule_evals(
         time_limit=time_limit,  # Dynamic time limit
         limit=limit if limit else "",  # Sample limit for quick testing
         venv_path=venv_path or "",
+        lm_eval_include_path=lm_eval_include_path
+        or str(files("oellm.resources") / "custom_lm_eval_tasks"),
+        hf_hub_offline=0 if local else 1,
+        lighteval_model_args="trust_remote_code=True,batch_size=1"
+        if local
+        else "trust_remote_code=True",
     )
 
     # substitute any $ENV_VAR occurrences
@@ -352,25 +384,45 @@ def schedule_evals(
         f.write(sbatch_script)
 
     if dry_run:
-        logging.info(f"Dry run mode: SLURM script generated at {sbatch_script_path}")
+        logging.info(f"Dry run mode: script generated at {sbatch_script_path}")
         logging.info(
-            f"Would schedule {actual_array_size} array jobs to handle {len(df)} evaluations"
+            f"Would run {actual_array_size} array job(s) covering {len(df)} evaluations"
         )
         logging.info(
-            f"Each array job will handle ~{(len(df) + actual_array_size - 1) // actual_array_size} evaluations"
+            f"Each job handles ~{(len(df) + actual_array_size - 1) // actual_array_size} evaluations"
         )
-        logging.info("To submit the job, run: sbatch " + str(sbatch_script_path))
+        if local:
+            logging.info(
+                f"To run locally: SLURM_ARRAY_TASK_ID=0 SLURM_ARRAY_JOB_ID=0 "
+                f"SLURM_JOB_ID=0 bash {sbatch_script_path}"
+            )
+        else:
+            logging.info("To submit the job, run: sbatch " + str(sbatch_script_path))
+        return
+
+    logging.info(f"📁 Evaluation directory: {evals_dir}")
+    logging.info(f"📄 Script: {sbatch_script_path}")
+    logging.info(f"📋 Job configuration: {csv_path}")
+    logging.info(f"📊 Results will be stored in: {evals_dir / 'results'}")
+
+    if local:
+        logging.info("Running evaluations locally with bash...")
+        local_env = {
+            **os.environ,
+            "SLURM_ARRAY_TASK_ID": "0",
+            "SLURM_ARRAY_JOB_ID": "0",
+            "SLURM_JOB_ID": "0",
+        }
+        try:
+            subprocess.run(["bash", str(sbatch_script_path)], env=local_env, check=True)
+            logging.info("Local evaluation completed.")
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Evaluation failed with exit code {e.returncode}")
         return
 
     try:
         logging.info("Calling sbatch to launch the evaluations")
-
-        # Provide helpful information about job monitoring and file locations
-        logging.info(f"📁 Evaluation directory: {evals_dir}")
-        logging.info(f"📄 SLURM script: {sbatch_script_path}")
-        logging.info(f"📋 Job configuration: {csv_path}")
         logging.info(f"📜 SLURM logs will be stored in: {slurm_logs_dir}")
-        logging.info(f"📊 Results will be stored in: {evals_dir / 'results'}")
 
         result = subprocess.run(
             ["sbatch"],
@@ -432,7 +484,7 @@ def collect_results(
         # Skip non-metric keys; lm-eval uses suffixes like ",none" or ",remove_whitespace"
         def _first_numeric(d: dict, *candidates: str) -> tuple[float | None, str | None]:
             for c in candidates:
-                if c in d and isinstance(d[c], (int, float)):
+                if c in d and isinstance(d[c], int | float):
                     return float(d[c]), c
             return None, None
 
@@ -441,7 +493,7 @@ def collect_results(
         ) -> tuple[float | None, str | None]:
             for k, v in d.items():
                 if (k == prefix or k.startswith(prefix + ",")) and isinstance(
-                    v, (int, float)
+                    v, int | float
                 ):
                     return float(v), k
             return None, None

@@ -36,3 +36,20 @@ oellm schedule-eval \
 ## Why Two Install Steps?
 
 lm-eval requires `datasets<4.0.0` while lighteval requires `datasets>=4.0.0`. Installing lighteval as an isolated uv tool (like the containers do) avoids this conflict.
+
+## DCLM-core-22
+
+`dclm-core-22` needs `lm-eval==0.4.9.2` (v0.4.10+ breaks `agieval_lsat_ar` in few-shot). Use `requirements-venv-dclm.txt` instead of the default requirements:
+
+```bash
+uv venv --python 3.12 dclm-core-venv
+uv pip install --python dclm-core-venv/bin/python -r requirements-venv-dclm.txt
+```
+
+```bash
+oellm schedule-eval \
+    --models Qwen/Qwen3-0.6B-Base \
+    --task_groups dclm-core-22 \
+    --venv_path dclm-core-venv \
+    --skip_checks true
+```

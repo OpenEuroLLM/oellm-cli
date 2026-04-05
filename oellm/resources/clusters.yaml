@@ -31,7 +31,7 @@ jupiter:
   ACCOUNT: "jureap59"
   QUEUE_LIMIT: 250
   EVAL_CONTAINER_IMAGE: "eval_env-jupiter.sif"
-  SINGULARITY_ARGS: "--nv --contain --env PYTHONNOUSERSITE=1"
+  SINGULARITY_ARGS: "--nv --contain --env PYTHONNOUSERSITE=1 --env SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt"
 
 lumi:
   hostname_pattern: "uan*"
@@ -41,6 +41,15 @@ lumi:
   QUEUE_LIMIT: 210
   EVAL_CONTAINER_IMAGE: "eval_env-lumi.sif"
   SINGULARITY_ARGS: "--rocm"
+
+snellius:
+  hostname_pattern: "*.snellius.surf.nl"
+  EVAL_BASE_DIR: "/projects/0/prjs1874/oellm_shared_evals"
+  PARTITION: "gpu_h100"
+  ACCOUNT: "thomaso"
+  QUEUE_LIMIT: 30
+  EVAL_CONTAINER_IMAGE: "eval_env-snellius.sif"
+  SINGULARITY_ARGS: "--nv --contain"
 
 ci: # lambda labs
   hostname_pattern:

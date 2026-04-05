@@ -75,6 +75,7 @@ jobs:
           - image: lumi
           - image: jupiter
             arch: arm64
+          - image: snellius
     name: Build & Publish SIF Artifact (${{ matrix.image }})
     runs-on: ubuntu-latest
     timeout-minutes: 45

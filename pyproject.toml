@@ -30,7 +30,7 @@ build-backend = "uv_build"
 [tool.uv.build-backend]
 module-name = "oellm"
 module-root = ""
-include = ["oellm/resources/*"]
+include = ["oellm/resources/*", "oellm/resources/**/*"]
 
 [tool.ruff]
 line-length = 90
