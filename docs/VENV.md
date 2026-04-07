@@ -76,9 +76,12 @@ We use [Ali's fork](https://github.com/Ali-Elganzory/evalchemy) which includes a
 
 3. Run with `EVALCHEMY_DIR` pointing to the cloned repo:
    ```bash
+   export HF_ALLOW_CODE_EVAL=1  # required by MBPP 
    EVALCHEMY_DIR=$(pwd)/evalchemy oellm schedule-eval \
        --models HuggingFaceTB/SmolLM2-135M \
        --task_groups reasoning \
        --venv_path evalchemy-venv \
        --skip_checks true
    ```
+
+> **Note:** `HF_ALLOW_CODE_EVAL=1` is required because MBPP (run via lm-eval-harness) uses HuggingFace's `code_eval` metric which executes model-generated code. The evalchemy benchmarks (GPQADiamond, MATH500, LiveCodeBench) do not require this variable as they handle code execution safely through internal guards.

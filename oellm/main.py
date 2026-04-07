@@ -373,6 +373,7 @@ def schedule_evals(
         lighteval_model_args="trust_remote_code=True,batch_size=1"
         if local
         else "trust_remote_code=True",
+        evalchemy_dir=os.environ.get("EVALCHEMY_DIR", "/opt/evalchemy"),
     )
 
     # substitute any $ENV_VAR occurrences
