@@ -183,7 +183,7 @@ do
             fi
             ;;
         evalchemy)
-            EVALCHEMY_WORK_DIR="${{EVALCHEMY_DIR:-/opt/evalchemy}}"
+            EVALCHEMY_WORK_DIR="{evalchemy_dir}"
             RESULTS_SUBDIR="{evals_dir}/$(openssl rand -hex 5)"
             if [ -n "$VENV_PATH" ]; then
                 source "$VENV_PATH/bin/activate"
