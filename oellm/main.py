@@ -14,6 +14,7 @@ import pandas as pd
 from jsonargparse import auto_cli
 
 from oellm.task_groups import (
+    _build_task_suite_map,
     _collect_dataset_specs,
     _expand_task_groups,
     _lookup_dataset_specs_for_tasks,
@@ -191,13 +192,14 @@ def schedule_evals(
 
     elif models:
         if task_groups is None:
+            task_suite_map = _build_task_suite_map()
             eval_jobs.extend(
                 [
                     EvaluationJob(
                         model_path=model,
                         task_path=task,
                         n_shot=shot,
-                        eval_suite="lm_eval",
+                        eval_suite=task_suite_map.get(task, "lm_eval"),
                     )
                     for model in models
                     for task in tasks
