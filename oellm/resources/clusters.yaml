@@ -27,8 +27,9 @@ jureca:
 jupiter:
   hostname_pattern: "jp*"
   EVAL_BASE_DIR: "/e/data1/datasets/playground/mmlaion/shared/oellm_shared_evals"
+  HF_HOME: "/e/data1/datasets/playground/mmlaion/shared/oellm_shared_evals"
   PARTITION: "booster"
-  ACCOUNT: "jureap59"
+  ACCOUNT: "reformo"
   QUEUE_LIMIT: 250
   EVAL_CONTAINER_IMAGE: "eval_env-jupiter.sif"
   SINGULARITY_ARGS: "--nv --contain --env PYTHONNOUSERSITE=1 --env SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt"

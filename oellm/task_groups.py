@@ -17,6 +17,7 @@ class _Task:
     n_shots: list[int] | None = None
     dataset: str | None = None
     subset: str | None = None
+    suite: str | None = None
 
 
 @dataclass
@@ -53,6 +54,7 @@ class TaskGroup:
                     n_shots=task_n_shots,
                     dataset=task_dataset,
                     subset=task_subset,
+                    suite=task_data.get("suite"),
                 )
             )
 
@@ -148,16 +150,20 @@ def _expand_task_groups(group_names: Iterable[str]) -> list[TaskGroupResult]:
             suite = group.suite
             for t in group.tasks:
                 shots = [int(s) for s in (t.n_shots or [])]
+                task_suite = t.suite or suite
                 for shot in shots:
-                    results.append(TaskGroupResult(task=t.name, n_shot=shot, suite=suite))
+                    results.append(
+                        TaskGroupResult(task=t.name, n_shot=shot, suite=task_suite)
+                    )
         else:
             for g in group.task_groups:
                 suite = g.suite
                 for t in g.tasks:
                     shots = [int(s) for s in (t.n_shots or [])]
+                    task_suite = t.suite or suite
                     for shot in shots:
                         results.append(
-                            TaskGroupResult(task=t.name, n_shot=shot, suite=suite)
+                            TaskGroupResult(task=t.name, n_shot=shot, suite=task_suite)
                         )
 
     return results

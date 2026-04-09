@@ -53,3 +53,35 @@ oellm schedule-eval \
     --venv_path dclm-core-venv \
     --skip_checks true
 ```
+
+## Evalchemy (reasoning)
+
+The `reasoning` task group includes 6 benchmarks: GSM8k, IFEval, and MBPP run via lm-eval-harness, while GPQADiamond, MATH500, and LiveCodeBench run via evalchemy.
+
+> **Note:** The evalchemy versions of GPQA and MATH500 differ from lm-eval-harness. Evalchemy uses free-form generation with CoT reasoning instead of log-likelihood scoring.
+
+We use [Ali's fork](https://github.com/Ali-Elganzory/evalchemy) which includes a [fix to randomize GPQA answer ordering](https://github.com/Ali-Elganzory/evalchemy/tree/fix/randomize-answers-gpqa-diamond) to eliminate positional bias, along with context window safety fixes. The PR is yet to be merged upstream.
+
+1. Clone the repo at the pinned commit:
+   ```bash
+   git clone https://github.com/Ali-Elganzory/evalchemy.git evalchemy
+   cd evalchemy && git checkout 54ac97648230c4c3a22c3a2b93068b5a4e573f8d && cd ..
+   ```
+
+2. Create a venv and install dependencies:
+   ```bash
+   uv venv --python 3.12 evalchemy-venv
+   uv pip install --python evalchemy-venv/bin/python -r requirements-venv-evalchemy.txt
+   ```
+
+3. Run with `EVALCHEMY_DIR` pointing to the cloned repo:
+   ```bash
+   export HF_ALLOW_CODE_EVAL=1  # required by MBPP 
+   EVALCHEMY_DIR=$(pwd)/evalchemy oellm schedule-eval \
+       --models HuggingFaceTB/SmolLM2-135M \
+       --task_groups reasoning \
+       --venv_path evalchemy-venv \
+       --skip_checks true
+   ```
+
+> **Note:** `HF_ALLOW_CODE_EVAL=1` is required because MBPP (run via lm-eval-harness) uses HuggingFace's `code_eval` metric which executes model-generated code. The evalchemy benchmarks (GPQADiamond, MATH500, LiveCodeBench) do not require this variable as they handle code execution safely through internal guards.
