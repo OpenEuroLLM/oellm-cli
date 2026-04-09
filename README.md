@@ -87,6 +87,16 @@ oellm schedule-eval \
 
 Results are written to `./oellm-output/<timestamp>/results/`.
 
+**Air-gapped cluster nodes (no internet):** batch jobs set `HF_HUB_OFFLINE=1` and get `HF_HOME` from your cluster env. With `--local`, the CLI defaults `HF_HOME` to `~/.cache/huggingface` if unset and would otherwise allow Hub access—so on a compute node without network, export your real cache and offline flag before running, for example:
+
+```bash
+export HF_HOME=/leonardo_work/OELLM_prod2026/users/shaldar0/oellm-evals/hf_data
+export HF_HUB_OFFLINE=1
+oellm schedule-eval ... --venv_path .venv --local true
+```
+
+The `HF_HUB_OFFLINE` value is read when you invoke `oellm` and baked into the generated script.
+
 ## SLURM Overrides
 
 Override cluster defaults (partition, account, time limit, etc.) with `--slurm_template_var` (JSON object):
