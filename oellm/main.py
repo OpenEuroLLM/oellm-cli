@@ -46,6 +46,7 @@ def _resolve_hf_hub_offline(local: bool) -> int:
             logging.warning("Invalid HF_HUB_OFFLINE=%r; using default", raw)
     return 0 if local else 1
 
+
 @dataclass
 class EvaluationJob:
     model_path: Path | str
