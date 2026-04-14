@@ -2,6 +2,7 @@
 #SBATCH --job-name=oellm-eval
 #SBATCH --time={time_limit}
 #SBATCH --gres=gpu:$GPUS_PER_NODE
+#SBATCH --mem={slurm_mem}
 #SBATCH --output={log_dir}/%x-%A-%a.out
 #SBATCH --partition=$PARTITION
 #SBATCH --account=$ACCOUNT
@@ -127,6 +128,66 @@ do
         fi
     }}
 
+    print_gpu_runtime_info() {{
+        echo "[debug] CUDA_VISIBLE_DEVICES: $GPU_DEVICES"
+        echo "[debug] SLURM_JOB_GPUS: ${{SLURM_JOB_GPUS:-<unset>}}"
+
+        if [ -n "$VENV_PATH" ]; then
+            nvidia-smi --query-gpu=index,name,memory.total,memory.used,memory.free --format=csv,noheader || true
+        else
+            singularity exec $SINGULARITY_ARGS \
+                $SINGULARITY_ENV_ARGS \
+                $SINGULARITY_HOME_ARG \
+                --bind $BIND_PATHS \
+                $EVAL_SIF_PATH \
+                env CUDA_VISIBLE_DEVICES=$GPU_DEVICES \
+                nvidia-smi --query-gpu=index,name,memory.total,memory.used,memory.free --format=csv,noheader || true
+        fi
+
+        run_python -c 'import torch; print(f"[debug] torch={{torch.__version__}} cuda_build={{torch.version.cuda}} cuda_available={{torch.cuda.is_available()}} device_count={{torch.cuda.device_count()}}"); [print(f"[debug] torch gpu[{{idx}}] name={{torch.cuda.get_device_properties(idx).name}} total_memory_gib={{torch.cuda.get_device_properties(idx).total_memory / (1024 ** 3):.2f}}") for idx in range(torch.cuda.device_count())]' || true
+    }}
+
+    print_lighteval_runtime_info() {{
+        if [ -n "$VENV_PATH" ]; then
+            source "$VENV_PATH/bin/activate"
+            LIGHTEVAL_BIN=$(command -v lighteval || true)
+            echo "[debug] lighteval path: ${{LIGHTEVAL_BIN:-<not found>}}"
+
+            if [ -n "$LIGHTEVAL_BIN" ]; then
+                LIGHTEVAL_REAL=$(readlink -f "$LIGHTEVAL_BIN" 2>/dev/null || printf '%s\n' "$LIGHTEVAL_BIN")
+                echo "[debug] lighteval resolved path: $LIGHTEVAL_REAL"
+                LIGHTEVAL_PY=$(head -n 1 "$LIGHTEVAL_REAL" 2>/dev/null | sed -n 's/^#!//p')
+                echo "[debug] lighteval python: ${{LIGHTEVAL_PY:-<unknown>}}"
+
+                if [ -n "$LIGHTEVAL_PY" ] && [ -x "$LIGHTEVAL_PY" ]; then
+                    "$LIGHTEVAL_PY" -c 'import torch; print(f"[debug] torch={{torch.__version__}} cuda_build={{torch.version.cuda}} cuda_available={{torch.cuda.is_available()}} device_count={{torch.cuda.device_count()}}")' || true
+                fi
+            fi
+        else
+            singularity exec $SINGULARITY_ARGS \
+                $SINGULARITY_ENV_ARGS \
+                $SINGULARITY_HOME_ARG \
+                --bind $BIND_PATHS \
+                $EVAL_SIF_PATH \
+                env CUDA_VISIBLE_DEVICES=$GPU_DEVICES \
+                bash -lc '
+                    LIGHTEVAL_BIN=$(command -v lighteval || true)
+                    echo "[debug] lighteval path: ${{LIGHTEVAL_BIN:-<not found>}}"
+
+                    if [ -n "$LIGHTEVAL_BIN" ]; then
+                        LIGHTEVAL_REAL=$(readlink -f "$LIGHTEVAL_BIN" 2>/dev/null || printf "%s\n" "$LIGHTEVAL_BIN")
+                        echo "[debug] lighteval resolved path: $LIGHTEVAL_REAL"
+                        LIGHTEVAL_PY=$(head -n 1 "$LIGHTEVAL_REAL" 2>/dev/null | sed -n "s/^#!//p")
+                        echo "[debug] lighteval python: ${{LIGHTEVAL_PY:-<unknown>}}"
+
+                        if [ -n "$LIGHTEVAL_PY" ] && [ -x "$LIGHTEVAL_PY" ]; then
+                            "$LIGHTEVAL_PY" -c '"'"'import torch; print(f"[debug] torch={{torch.__version__}} cuda_build={{torch.version.cuda}} cuda_available={{torch.cuda.is_available()}} device_count={{torch.cuda.device_count()}}")'"'"' || true
+                        fi
+                    fi
+                '
+        fi
+    }}
+
     case "$suite_normalized" in
         lm_eval|lm-eval|lm-eval-harness)
             run_python -m lm_eval --model hf \
@@ -158,6 +219,9 @@ do
 
             RESULTS_SUBDIR="{evals_dir}/$(openssl rand -hex 5)"
             mkdir -p "$RESULTS_SUBDIR"
+            echo "[debug] lighteval model args: {lighteval_model_args}"
+            print_gpu_runtime_info
+            print_lighteval_runtime_info
 
             if [ -n "$VENV_PATH" ]; then
                 source "$VENV_PATH/bin/activate"

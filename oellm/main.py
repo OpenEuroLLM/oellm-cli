@@ -48,6 +48,75 @@ def _resolve_hf_hub_offline(local: bool) -> int:
     return 0 if local else 1
 
 
+def _read_positive_int_env(key: str, default: int) -> int:
+    raw = os.environ.get(key)
+    if raw is None or str(raw).strip() == "":
+        return default
+    try:
+        value = int(str(raw).strip())
+    except ValueError:
+        logging.warning("Invalid %s=%r; using %s", key, raw, default)
+        return default
+    if value < 1:
+        logging.warning("%s must be >= 1 (got %r); using %s", key, raw, default)
+        return default
+    return value
+
+
+def _resolve_slurm_mem(eval_suites: list[str]) -> str:
+    """Return the host-memory request for the generated SLURM job."""
+    explicit_mem = os.environ.get("SLURM_MEM")
+    if explicit_mem is not None and str(explicit_mem).strip() != "":
+        return str(explicit_mem).strip()
+
+    gpus_per_node = _read_positive_int_env("GPUS_PER_NODE", 1)
+    mem_per_gpu_gb = _read_positive_int_env("SLURM_MEM_PER_GPU_GB", 48)
+    min_mem_gb = _read_positive_int_env("SLURM_MIN_MEM_GB", mem_per_gpu_gb)
+
+    normalized_suites = {suite.strip().lower() for suite in eval_suites}
+    extra_mem_gb = 0
+    if {"lighteval", "light-eval"} & normalized_suites:
+        # Lighteval eagerly loads a large task registry and benefits from extra host RAM.
+        extra_mem_gb = _read_positive_int_env("LIGHTEVAL_EXTRA_MEM_GB", 16)
+
+    mem_gb = max(min_mem_gb, gpus_per_node * mem_per_gpu_gb + extra_mem_gb)
+    return f"{mem_gb}G"
+
+
+def _resolve_lighteval_model_args(local: bool = False) -> str:
+    """Return model args for lighteval, defaulting to an explicit batch size.
+
+    Defaults:
+    - if `local` is True: `batch_size=1`
+    - otherwise: `batch_size=32`
+
+    Users may override the entire model args via `LIGHTEVAL_MODEL_ARGS` or the
+    batch size via `LIGHTEVAL_BATCH_SIZE` environment variables.
+    """
+    explicit_model_args = os.environ.get("LIGHTEVAL_MODEL_ARGS")
+    if explicit_model_args is not None and str(explicit_model_args).strip() != "":
+        return str(explicit_model_args).strip()
+
+    batch_size = os.environ.get("LIGHTEVAL_BATCH_SIZE")
+    if batch_size is not None and str(batch_size).strip() != "":
+        batch_size_value = str(batch_size).strip()
+        try:
+            if int(batch_size_value) < 1:
+                raise ValueError
+        except ValueError:
+            fallback = "1" if local else "32"
+            logging.warning(
+                "Invalid LIGHTEVAL_BATCH_SIZE=%r; falling back to batch_size=%s",
+                batch_size,
+                fallback,
+            )
+            batch_size_value = fallback
+    else:
+        batch_size_value = "1" if local else "32"
+
+    return f"trust_remote_code=True,batch_size={batch_size_value}"
+
+
 @dataclass
 class EvaluationJob:
     model_path: Path | str
@@ -114,8 +183,8 @@ def schedule_evals(
             submitting to SLURM. Requires --venv_path. Skips cluster environment detection and
             runs all evaluations sequentially in a single process.
         slurm_template_var: JSON object of template variable overrides. Use exact env var names
-            (PARTITION, ACCOUNT, GPUS_PER_NODE). "TIME" overrides the time limit.
-            Example: '{"PARTITION":"dev-g","ACCOUNT":"FOO","TIME":"02:00:00","GPUS_PER_NODE":2}'
+            (PARTITION, ACCOUNT, GPUS_PER_NODE, SLURM_MEM). "TIME" overrides the time limit.
+            Example: '{"PARTITION":"dev-g","ACCOUNT":"FOO","TIME":"02:00:00","GPUS_PER_NODE":2,"SLURM_MEM":"96G"}'
     """
     _setup_logging(verbose)
 
@@ -358,6 +427,7 @@ def schedule_evals(
                 logging.info(f"Using slurm_template_var override: {key}={value}")
 
     # Log the calculated values
+    slurm_mem = _resolve_slurm_mem(df["eval_suite"].unique().tolist())
     logging.info("📊 Evaluation planning:")
     logging.info(f"   Total evaluations: {total_evals}")
     logging.info(f"   Estimated time per eval: {minutes_per_eval} minutes")
@@ -373,6 +443,7 @@ def schedule_evals(
         f"   Time per job: {minutes_per_job} minutes ({minutes_per_job / 60:.1f} hours)"
     )
     logging.info(f"   Time limit with safety margin: {time_limit}")
+    logging.info(f"   Requested host memory: {slurm_mem}")
 
     sbatch_script = sbatch_template.format(
         csv_path=csv_path,
@@ -383,14 +454,13 @@ def schedule_evals(
         log_dir=evals_dir / "slurm_logs",
         evals_dir=str(evals_dir / "results"),
         time_limit=time_limit,  # Dynamic time limit
+        slurm_mem=slurm_mem,
         limit=limit if limit else "",  # Sample limit for quick testing
         venv_path=venv_path or "",
         lm_eval_include_path=lm_eval_include_path
         or str(files("oellm.resources") / "custom_lm_eval_tasks"),
         hf_hub_offline=_resolve_hf_hub_offline(local),
-        lighteval_model_args="trust_remote_code=True,batch_size=1"
-        if local
-        else "trust_remote_code=True",
+        lighteval_model_args=_resolve_lighteval_model_args(local),  # Batch size
         evalchemy_dir=os.environ.get("EVALCHEMY_DIR", "/opt/evalchemy"),
     )
 

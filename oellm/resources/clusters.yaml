@@ -3,6 +3,9 @@ shared:
   UV_LINK_MODE: "copy"
   EVAL_OUTPUT_DIR: "{EVAL_BASE_DIR}/{USER}"  # where evaluations are written
   GPUS_PER_NODE: 1
+  SLURM_MEM_PER_GPU_GB: 48  # default host RAM requested per GPU
+  SLURM_MIN_MEM_GB: 48  # floor for single-GPU jobs
+  LIGHTEVAL_EXTRA_MEM_GB: 16  # extra RAM for large lighteval task registries
   HF_HUB_DISABLE_PROGRESS_BARS: "1"
   HF_DATASETS_DISABLE_PROGRESS_BARS: "1"
 

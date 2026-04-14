@@ -99,19 +99,43 @@ The `HF_HUB_OFFLINE` value is read when you invoke `oellm` and baked into the ge
 
 ## SLURM Overrides
 
-Override cluster defaults (partition, account, time limit, etc.) with `--slurm_template_var` (JSON object):
+Override cluster defaults (partition, account, time limit, memory, etc.) with `--slurm_template_var` (JSON object). By default, generated jobs request host RAM as `GPUS_PER_NODE * SLURM_MEM_PER_GPU_GB`, plus `LIGHTEVAL_EXTRA_MEM_GB` for lighteval runs. You can force an exact value with `SLURM_MEM`.
 
 ```bash
 # Use a different partition (e.g. dev-g on LUMI when small-g is crowded)
 oellm schedule-eval --models "model-name" --task_groups "open-sci-0.01" \
   --slurm_template_var '{"PARTITION":"dev-g"}'
 
-# Multiple overrides: partition, account, time limit, GPUs
+# Multiple overrides: partition, account, time limit, GPUs, exact RAM
 oellm schedule-eval --models "model-name" --task_groups "open-sci-0.01" \
-  --slurm_template_var '{"PARTITION":"dev-g","ACCOUNT":"myproject","TIME":"02:00:00","GPUS_PER_NODE":2}'
+  --slurm_template_var '{"PARTITION":"dev-g","ACCOUNT":"myproject","TIME":"02:00:00","GPUS_PER_NODE":2,"SLURM_MEM":"96G"}'
 ```
 
-Use exact env var names: `PARTITION`, `ACCOUNT`, `GPUS_PER_NODE`. `TIME` (HH:MM:SS) overrides the time limit.
+Use exact env var names: `PARTITION`, `ACCOUNT`, `GPUS_PER_NODE`, `SLURM_MEM`. `TIME` (HH:MM:SS) overrides the time limit.
+
+## Lighteval Batch Size
+
+For lighteval runs, generated jobs now default to `batch_size=1` for local runs and
+`batch_size=32` for non-local (SLURM/cluster) runs. This reduces the risk of
+out-of-memory failures where lighteval's auto batch-size detection can be
+overly optimistic for multiple-choice loglikelihood tasks. You can still
+override these defaults:
+
+```bash
+# Set an explicit batch size (overrides the local/cluster default)
+LIGHTEVAL_BATCH_SIZE=8 oellm schedule-eval \
+  --models "model-name" \
+  --task_groups "belebele-eu-cf" \
+  --venv_path .venv
+```
+
+If you need full manual control over all model args, set `LIGHTEVAL_MODEL_ARGS`,
+for example:
+
+```bash
+LIGHTEVAL_MODEL_ARGS='trust_remote_code=True,batch_size=4' oellm schedule-eval \
+  --models "model-name" --task_groups "belebele-eu-cf" --venv_path .venv
+```
 
 ## ⚠️ Dataset Pre-Download Warning
 
