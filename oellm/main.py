@@ -595,7 +595,7 @@ def collect_results(
             val, key = _first_matching_prefix(result_dict, preferred)
             return val, key
 
-        for metric in ["acc,none", "acc", "accuracy", "f1", "exact_match"]:
+        for metric in ["acc,none", "acc", "accuracy", "acc_norm", "f1", "exact_match"]:
             val, key = _first_numeric(result_dict, metric)
             if val is not None:
                 return val, key
@@ -604,14 +604,24 @@ def collect_results(
                 return val, key
         return None, None
 
+    def _split_task_and_nshot(name: str) -> tuple[str, int | None]:
+        """Split task names of the form 'task|N' returning (task, N) or (task, None)."""
+        if not isinstance(name, str):
+            return name, None
+        if "|" in name:
+            base, after = name.rsplit("|", 1)
+            if after.isdigit():
+                return base, int(after)
+        return name, None
+
     results_path = Path(results_dir)
     if not results_path.exists():
         raise ValueError(f"Results directory does not exist: {results_dir}")
 
     # Check if we need to look in a 'results' subdirectory
     if (results_path / "results").exists() and (results_path / "results").is_dir():
-        # User passed the top-level directory, look in results subdirectory
-        json_files = list((results_path / "results").glob("*.json"))
+        # User passed the top-level directory, look in results subdirectory for nested json files
+        json_files = list((results_path / "results").rglob("*.json"))
     else:
         # User passed the results directory directly
         json_files = list(results_path.glob("*.json"))
@@ -641,8 +651,17 @@ def collect_results(
         with open(json_file) as f:
             data = json.load(f)
 
-        # Extract model name/path
-        model_name = data.get("model_name", "unknown")
+        # Extract model name/path from a few common locations used in different
+        # versions of the result JSON schema.
+        model_name = (
+            data.get("model_name")
+            or data.get("config_general", {}).get("model_name")
+            or data.get("config_general", {}).get("model")
+            or data.get("config_general", {}).get("model_path")
+            or data.get("summary_general", {}).get("model")
+            or data.get("model")
+            or "unknown"
+        )
 
         # Extract results for each task
         results = data.get("results", {})
@@ -675,14 +694,21 @@ def collect_results(
         # Prefer only the first aggregate metric from groups (simplified)
         if groups_map:
             group_name, group_results = next(iter(groups_map.items()))
-            n_shot = n_shot_data.get(group_name, "unknown")
+            # Prefer original extraction from n_shot_data and subtasks, then
+            # global_n_shot; only fall back to parsing the group name.
+            orig_group_name = group_name
+            n_shot = n_shot_data.get(orig_group_name, "unknown")
             if n_shot == "unknown":
-                for subtask_name in group_subtasks_map.get(group_name, []):
+                for subtask_name in group_subtasks_map.get(orig_group_name, []):
                     if subtask_name in n_shot_data:
                         n_shot = n_shot_data[subtask_name]
                         break
             if n_shot == "unknown" and global_n_shot is not None:
                 n_shot = global_n_shot
+            # Fallback: parse possible '|N' suffix from group name
+            group_name, parsed_n = _split_task_and_nshot(orig_group_name)
+            if n_shot == "unknown" and parsed_n is not None:
+                n_shot = parsed_n
             performance, metric_name = _resolve_metric(group_name, group_results)
             if performance is not None:
                 if check:
@@ -715,12 +741,15 @@ def collect_results(
             if task_name.startswith("global_mmlu_") and task_name.count("_") >= 4:
                 continue
 
-            # Get n_shot for this task
-            n_shot = n_shot_data.get(task_name, "unknown")
+            # Get n_shot for this task.
+            # Prefer original extraction from `n_shot_data` and `global_n_shot`,
+            # and fall back to parsing a '|N' suffix in the task name.
+            task_name_clean, parsed_n = _split_task_and_nshot(task_name)
+            n_shot = n_shot_data.get(task_name_clean) or global_n_shot or parsed_n or "unknown"
 
             # If this is a group aggregate and n_shot is missing, derive from any subtask
-            if task_name in group_aggregate_names and n_shot == "unknown":
-                for subtask_name in group_subtasks_map.get(task_name, []):
+            if task_name_clean in group_aggregate_names and n_shot == "unknown":
+                for subtask_name in group_subtasks_map.get(task_name_clean, []):
                     if subtask_name in n_shot_data:
                         n_shot = n_shot_data[subtask_name]
                         break
@@ -728,7 +757,7 @@ def collect_results(
                 n_shot = global_n_shot
 
             # Special handling for MMLU aggregate - get n_shot from any MMLU subtask
-            if task_name == "mmlu" and n_shot == "unknown":
+            if task_name_clean == "mmlu" and n_shot == "unknown":
                 for key, value in n_shot_data.items():
                     if key.startswith("mmlu_"):
                         n_shot = value
@@ -737,8 +766,8 @@ def collect_results(
                     n_shot = global_n_shot
 
             # Special handling for Global MMLU aggregates - get n_shot from subtasks
-            if task_name.startswith("global_mmlu_") and n_shot == "unknown":
-                prefix = f"{task_name}_"
+            if task_name_clean.startswith("global_mmlu_") and n_shot == "unknown":
+                prefix = f"{task_name_clean}_"
                 for key, value in n_shot_data.items():
                     if key.startswith(prefix):
                         n_shot = value
@@ -752,12 +781,12 @@ def collect_results(
             if performance is not None:
                 # Track completed job for check mode
                 if check:
-                    completed_jobs.add((model_name, task_name, n_shot))
+                    completed_jobs.add((model_name, task_name_clean, n_shot))
 
                 rows.append(
                     {
                         "model_name": model_name,
-                        "task": task_name,
+                        "task": task_name_clean,
                         "n_shot": n_shot,
                         "performance": performance,
                         "metric_name": metric_name if metric_name is not None else "",
