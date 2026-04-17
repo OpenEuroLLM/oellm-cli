@@ -266,6 +266,24 @@ def _lookup_dataset_specs_for_tasks(task_names: Iterable[str]) -> list[DatasetSp
     return specs
 
 
+def _build_task_suite_map() -> dict[str, str]:
+    """Build a mapping from task names to their suite from all task groups."""
+    data = (
+        yaml.safe_load((files("oellm.resources") / "task-groups.yaml").read_text()) or {}
+    )
+
+    task_suite_map: dict[str, str] = {}
+    for _, group_data in data.get("task_groups", {}).items():
+        group_suite = group_data.get("suite", "lm-eval-harness")
+        for task_data in group_data.get("tasks", []):
+            task_name = task_data.get("task")
+            task_suite = task_data.get("suite", group_suite)
+            if task_name and task_name not in task_suite_map:
+                task_suite_map[task_name] = task_suite
+
+    return task_suite_map
+
+
 def get_all_task_group_names() -> list[str]:
     """Return all available task group names (excluding super_groups)."""
     data = (

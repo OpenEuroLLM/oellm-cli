@@ -14,6 +14,7 @@ import pandas as pd
 from jsonargparse import auto_cli
 
 from oellm.task_groups import (
+    _build_task_suite_map,
     _collect_dataset_specs,
     _expand_task_groups,
     _lookup_dataset_specs_for_tasks,
@@ -45,6 +46,52 @@ def _resolve_hf_hub_offline(local: bool) -> int:
         except ValueError:
             logging.warning("Invalid HF_HUB_OFFLINE=%r; using default", raw)
     return 0 if local else 1
+
+
+def _resolve_slurm_mem() -> str:
+    """Return the host-memory request for the generated SLURM job."""
+    explicit_mem = os.environ.get("SLURM_MEM")
+    if explicit_mem is not None and str(explicit_mem).strip() != "":
+        return str(explicit_mem).strip()
+
+    logging.warning(
+        "SLURM_MEM not set; falling back to default memory request '96G'."
+    )
+    return "96G"
+
+
+def _resolve_additional_model_args(local: bool = False) -> str:
+    """Return model args for lighteval, defaulting to an explicit batch size.
+    - if `local` is True: `batch_size=1`
+    - otherwise: `batch_size=32`
+
+    Users may override the entire model args via `MODEL_ARGS` or the
+    batch size via `BATCH_SIZE` environment variables.
+
+    For now this is only passed to suite lighteval, not to evalchemy and lm-eval yet.
+    """
+    explicit_model_args = os.environ.get("MODEL_ARGS")
+    if explicit_model_args is not None and str(explicit_model_args).strip() != "":
+        return str(explicit_model_args).strip()
+
+    batch_size = os.environ.get("BATCH_SIZE")
+    if batch_size is not None and str(batch_size).strip() != "":
+        batch_size_value = str(batch_size).strip()
+        try:
+            if int(batch_size_value) < 1:
+                raise ValueError
+        except ValueError:
+            fallback = "1" if local else "32"
+            logging.warning(
+                "Invalid BATCH_SIZE=%r; falling back to batch_size=%s",
+                batch_size,
+                fallback,
+            )
+            batch_size_value = fallback
+    else:
+        batch_size_value = "1" if local else "32"
+
+    return f"batch_size={batch_size_value}"
 
 
 @dataclass
@@ -113,8 +160,8 @@ def schedule_evals(
             submitting to SLURM. Requires --venv_path. Skips cluster environment detection and
             runs all evaluations sequentially in a single process.
         slurm_template_var: JSON object of template variable overrides. Use exact env var names
-            (PARTITION, ACCOUNT, GPUS_PER_NODE). "TIME" overrides the time limit.
-            Example: '{"PARTITION":"dev-g","ACCOUNT":"FOO","TIME":"02:00:00","GPUS_PER_NODE":2}'
+            (PARTITION, ACCOUNT, GPUS_PER_NODE, SLURM_MEM). "TIME" overrides the time limit.
+            Example: '{"PARTITION":"dev-g","ACCOUNT":"FOO","TIME":"02:00:00","GPUS_PER_NODE":2,"SLURM_MEM":"96G"}'
     """
     _setup_logging(verbose)
 
@@ -191,13 +238,14 @@ def schedule_evals(
 
     elif models:
         if task_groups is None:
+            task_suite_map = _build_task_suite_map()
             eval_jobs.extend(
                 [
                     EvaluationJob(
                         model_path=model,
                         task_path=task,
                         n_shot=shot,
-                        eval_suite="lm_eval",
+                        eval_suite=task_suite_map.get(task, "lm_eval"),
                     )
                     for model in models
                     for task in tasks
@@ -356,6 +404,7 @@ def schedule_evals(
                 logging.info(f"Using slurm_template_var override: {key}={value}")
 
     # Log the calculated values
+    slurm_mem = _resolve_slurm_mem()
     logging.info("📊 Evaluation planning:")
     logging.info(f"   Total evaluations: {total_evals}")
     logging.info(f"   Estimated time per eval: {minutes_per_eval} minutes")
@@ -371,6 +420,7 @@ def schedule_evals(
         f"   Time per job: {minutes_per_job} minutes ({minutes_per_job / 60:.1f} hours)"
     )
     logging.info(f"   Time limit with safety margin: {time_limit}")
+    logging.info(f"   Requested host memory: {slurm_mem}")
 
     sbatch_script = sbatch_template.format(
         csv_path=csv_path,
@@ -381,14 +431,13 @@ def schedule_evals(
         log_dir=evals_dir / "slurm_logs",
         evals_dir=str(evals_dir / "results"),
         time_limit=time_limit,  # Dynamic time limit
+        slurm_mem=slurm_mem,
         limit=limit if limit else "",  # Sample limit for quick testing
         venv_path=venv_path or "",
         lm_eval_include_path=lm_eval_include_path
         or str(files("oellm.resources") / "custom_lm_eval_tasks"),
         hf_hub_offline=_resolve_hf_hub_offline(local),
-        lighteval_model_args="trust_remote_code=True,batch_size=1"
-        if local
-        else "trust_remote_code=True",
+        additional_model_args=_resolve_additional_model_args(local),  # Batch size
         evalchemy_dir=os.environ.get("EVALCHEMY_DIR", "/opt/evalchemy"),
     )
 
@@ -523,7 +572,7 @@ def collect_results(
             val, key = _first_matching_prefix(result_dict, preferred)
             return val, key
 
-        for metric in ["acc,none", "acc", "accuracy", "f1", "exact_match"]:
+        for metric in ["acc,none", "acc", "accuracy", "acc_norm", "f1", "exact_match"]:
             val, key = _first_numeric(result_dict, metric)
             if val is not None:
                 return val, key
@@ -532,14 +581,24 @@ def collect_results(
                 return val, key
         return None, None
 
+    def _split_task_and_nshot(name: str) -> tuple[str, int | None]:
+        """Split task names of the form 'task|N' returning (task, N) or (task, None)."""
+        if not isinstance(name, str):
+            return name, None
+        if "|" in name:
+            base, after = name.rsplit("|", 1)
+            if after.isdigit():
+                return base, int(after)
+        return name, None
+
     results_path = Path(results_dir)
     if not results_path.exists():
         raise ValueError(f"Results directory does not exist: {results_dir}")
 
     # Check if we need to look in a 'results' subdirectory
     if (results_path / "results").exists() and (results_path / "results").is_dir():
-        # User passed the top-level directory, look in results subdirectory
-        json_files = list((results_path / "results").glob("*.json"))
+        # User passed the top-level directory, look in results subdirectory for nested json files
+        json_files = list((results_path / "results").rglob("*.json"))
     else:
         # User passed the results directory directly
         json_files = list(results_path.glob("*.json"))
@@ -569,8 +628,17 @@ def collect_results(
         with open(json_file) as f:
             data = json.load(f)
 
-        # Extract model name/path
-        model_name = data.get("model_name", "unknown")
+        # Extract model name/path from a few common locations used in different
+        # versions of the result JSON schema.
+        model_name = (
+            data.get("model_name")
+            or data.get("config_general", {}).get("model_name")
+            or data.get("config_general", {}).get("model")
+            or data.get("config_general", {}).get("model_path")
+            or data.get("summary_general", {}).get("model")
+            or data.get("model")
+            or "unknown"
+        )
 
         # Extract results for each task
         results = data.get("results", {})
@@ -603,14 +671,21 @@ def collect_results(
         # Prefer only the first aggregate metric from groups (simplified)
         if groups_map:
             group_name, group_results = next(iter(groups_map.items()))
-            n_shot = n_shot_data.get(group_name, "unknown")
+            # Prefer original extraction from n_shot_data and subtasks, then
+            # global_n_shot; only fall back to parsing the group name.
+            orig_group_name = group_name
+            n_shot = n_shot_data.get(orig_group_name, "unknown")
             if n_shot == "unknown":
-                for subtask_name in group_subtasks_map.get(group_name, []):
+                for subtask_name in group_subtasks_map.get(orig_group_name, []):
                     if subtask_name in n_shot_data:
                         n_shot = n_shot_data[subtask_name]
                         break
             if n_shot == "unknown" and global_n_shot is not None:
                 n_shot = global_n_shot
+            # Fallback: parse possible '|N' suffix from group name
+            group_name, parsed_n = _split_task_and_nshot(orig_group_name)
+            if n_shot == "unknown" and parsed_n is not None:
+                n_shot = parsed_n
             performance, metric_name = _resolve_metric(group_name, group_results)
             if performance is not None:
                 if check:
@@ -643,12 +718,17 @@ def collect_results(
             if task_name.startswith("global_mmlu_") and task_name.count("_") >= 4:
                 continue
 
-            # Get n_shot for this task
-            n_shot = n_shot_data.get(task_name, "unknown")
+            # Get n_shot for this task.
+            # Prefer original extraction from `n_shot_data` and `global_n_shot`,
+            # and fall back to parsing a '|N' suffix in the task name.
+            task_name_clean, parsed_n = _split_task_and_nshot(task_name)
+            n_shot = (
+                n_shot_data.get(task_name_clean) or global_n_shot or parsed_n or "unknown"
+            )
 
             # If this is a group aggregate and n_shot is missing, derive from any subtask
-            if task_name in group_aggregate_names and n_shot == "unknown":
-                for subtask_name in group_subtasks_map.get(task_name, []):
+            if task_name_clean in group_aggregate_names and n_shot == "unknown":
+                for subtask_name in group_subtasks_map.get(task_name_clean, []):
                     if subtask_name in n_shot_data:
                         n_shot = n_shot_data[subtask_name]
                         break
@@ -656,7 +736,7 @@ def collect_results(
                 n_shot = global_n_shot
 
             # Special handling for MMLU aggregate - get n_shot from any MMLU subtask
-            if task_name == "mmlu" and n_shot == "unknown":
+            if task_name_clean == "mmlu" and n_shot == "unknown":
                 for key, value in n_shot_data.items():
                     if key.startswith("mmlu_"):
                         n_shot = value
@@ -665,8 +745,8 @@ def collect_results(
                     n_shot = global_n_shot
 
             # Special handling for Global MMLU aggregates - get n_shot from subtasks
-            if task_name.startswith("global_mmlu_") and n_shot == "unknown":
-                prefix = f"{task_name}_"
+            if task_name_clean.startswith("global_mmlu_") and n_shot == "unknown":
+                prefix = f"{task_name_clean}_"
                 for key, value in n_shot_data.items():
                     if key.startswith(prefix):
                         n_shot = value
@@ -680,12 +760,12 @@ def collect_results(
             if performance is not None:
                 # Track completed job for check mode
                 if check:
-                    completed_jobs.add((model_name, task_name, n_shot))
+                    completed_jobs.add((model_name, task_name_clean, n_shot))
 
                 rows.append(
                     {
                         "model_name": model_name,
-                        "task": task_name,
+                        "task": task_name_clean,
                         "n_shot": n_shot,
                         "performance": performance,
                         "metric_name": metric_name if metric_name is not None else "",
