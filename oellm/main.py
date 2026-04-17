@@ -745,7 +745,9 @@ def collect_results(
             # Prefer original extraction from `n_shot_data` and `global_n_shot`,
             # and fall back to parsing a '|N' suffix in the task name.
             task_name_clean, parsed_n = _split_task_and_nshot(task_name)
-            n_shot = n_shot_data.get(task_name_clean) or global_n_shot or parsed_n or "unknown"
+            n_shot = (
+                n_shot_data.get(task_name_clean) or global_n_shot or parsed_n or "unknown"
+            )
 
             # If this is a group aggregate and n_shot is missing, derive from any subtask
             if task_name_clean in group_aggregate_names and n_shot == "unknown":
