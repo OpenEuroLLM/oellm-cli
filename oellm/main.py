@@ -48,39 +48,16 @@ def _resolve_hf_hub_offline(local: bool) -> int:
     return 0 if local else 1
 
 
-def _read_positive_int_env(key: str, default: int) -> int:
-    raw = os.environ.get(key)
-    if raw is None or str(raw).strip() == "":
-        return default
-    try:
-        value = int(str(raw).strip())
-    except ValueError:
-        logging.warning("Invalid %s=%r; using %s", key, raw, default)
-        return default
-    if value < 1:
-        logging.warning("%s must be >= 1 (got %r); using %s", key, raw, default)
-        return default
-    return value
-
-
-def _resolve_slurm_mem(eval_suites: list[str]) -> str:
+def _resolve_slurm_mem() -> str:
     """Return the host-memory request for the generated SLURM job."""
     explicit_mem = os.environ.get("SLURM_MEM")
     if explicit_mem is not None and str(explicit_mem).strip() != "":
         return str(explicit_mem).strip()
 
-    gpus_per_node = _read_positive_int_env("GPUS_PER_NODE", 1)
-    mem_per_gpu_gb = _read_positive_int_env("SLURM_MEM_PER_GPU_GB", 48)
-    min_mem_gb = _read_positive_int_env("SLURM_MIN_MEM_GB", mem_per_gpu_gb)
-
-    normalized_suites = {suite.strip().lower() for suite in eval_suites}
-    extra_mem_gb = 0
-    if {"lighteval", "light-eval"} & normalized_suites:
-        # Lighteval eagerly loads a large task registry and benefits from extra host RAM.
-        extra_mem_gb = _read_positive_int_env("LIGHTEVAL_EXTRA_MEM_GB", 16)
-
-    mem_gb = max(min_mem_gb, gpus_per_node * mem_per_gpu_gb + extra_mem_gb)
-    return f"{mem_gb}G"
+    logging.warning(
+        "SLURM_MEM not set; falling back to default memory request '96G'."
+    )
+    return "96G"
 
 
 def _resolve_lighteval_model_args(local: bool = False) -> str:
@@ -427,7 +404,7 @@ def schedule_evals(
                 logging.info(f"Using slurm_template_var override: {key}={value}")
 
     # Log the calculated values
-    slurm_mem = _resolve_slurm_mem(df["eval_suite"].unique().tolist())
+    slurm_mem = _resolve_slurm_mem()
     logging.info("📊 Evaluation planning:")
     logging.info(f"   Total evaluations: {total_evals}")
     logging.info(f"   Estimated time per eval: {minutes_per_eval} minutes")

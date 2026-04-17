@@ -99,7 +99,7 @@ The `HF_HUB_OFFLINE` value is read when you invoke `oellm` and baked into the ge
 
 ## SLURM Overrides
 
-Override cluster defaults (partition, account, time limit, memory, etc.) with `--slurm_template_var` (JSON object). By default, generated jobs request host RAM as `GPUS_PER_NODE * SLURM_MEM_PER_GPU_GB`, plus `LIGHTEVAL_EXTRA_MEM_GB` for lighteval runs. You can force an exact value with `SLURM_MEM`.
+Override cluster defaults (partition, account, time limit, memory, etc.) with `--slurm_template_var` (JSON object). Provide `SLURM_MEM` to request an exact host memory amount, otherwise falls back to a default of `96G`.
 
 ```bash
 # Use a different partition (e.g. dev-g on LUMI when small-g is crowded)
