@@ -115,7 +115,7 @@ Use exact env var names: `PARTITION`, `ACCOUNT`, `GPUS_PER_NODE`, `SLURM_MEM`. `
 
 ## Lighteval Batch Size
 
-For lighteval runs, generated jobs now default to `batch_size=1` for local runs and
+For lighteval runs, generated jobs default to `batch_size=1` for local runs and
 `batch_size=32` for non-local (SLURM/cluster) runs. This reduces the risk of
 out-of-memory failures where lighteval's auto batch-size detection can be
 overly optimistic for multiple-choice loglikelihood tasks. You can still
@@ -123,17 +123,17 @@ override these defaults:
 
 ```bash
 # Set an explicit batch size (overrides the local/cluster default)
-LIGHTEVAL_BATCH_SIZE=8 oellm schedule-eval \
+BATCH_SIZE=8 oellm schedule-eval \
   --models "model-name" \
   --task_groups "belebele-eu-cf" \
   --venv_path .venv
 ```
 
-If you need full manual control over all model args, set `LIGHTEVAL_MODEL_ARGS`,
+If you need full manual control over all model args, set `MODEL_ARGS`,
 for example:
 
 ```bash
-LIGHTEVAL_MODEL_ARGS='trust_remote_code=True,batch_size=4' oellm schedule-eval \
+MODEL_ARGS='batch_size=8, ...' oellm schedule-eval \
   --models "model-name" --task_groups "belebele-eu-cf" --venv_path .venv
 ```
 

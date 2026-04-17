@@ -60,21 +60,21 @@ def _resolve_slurm_mem() -> str:
     return "96G"
 
 
-def _resolve_lighteval_model_args(local: bool = False) -> str:
+def _resolve_additional_model_args(local: bool = False) -> str:
     """Return model args for lighteval, defaulting to an explicit batch size.
-
-    Defaults:
     - if `local` is True: `batch_size=1`
     - otherwise: `batch_size=32`
 
-    Users may override the entire model args via `LIGHTEVAL_MODEL_ARGS` or the
-    batch size via `LIGHTEVAL_BATCH_SIZE` environment variables.
+    Users may override the entire model args via `MODEL_ARGS` or the
+    batch size via `BATCH_SIZE` environment variables.
+
+    For now this is only passed to suite lighteval, not to evalchemy and lm-eval yet.
     """
-    explicit_model_args = os.environ.get("LIGHTEVAL_MODEL_ARGS")
+    explicit_model_args = os.environ.get("MODEL_ARGS")
     if explicit_model_args is not None and str(explicit_model_args).strip() != "":
         return str(explicit_model_args).strip()
 
-    batch_size = os.environ.get("LIGHTEVAL_BATCH_SIZE")
+    batch_size = os.environ.get("BATCH_SIZE")
     if batch_size is not None and str(batch_size).strip() != "":
         batch_size_value = str(batch_size).strip()
         try:
@@ -83,7 +83,7 @@ def _resolve_lighteval_model_args(local: bool = False) -> str:
         except ValueError:
             fallback = "1" if local else "32"
             logging.warning(
-                "Invalid LIGHTEVAL_BATCH_SIZE=%r; falling back to batch_size=%s",
+                "Invalid BATCH_SIZE=%r; falling back to batch_size=%s",
                 batch_size,
                 fallback,
             )
@@ -91,7 +91,7 @@ def _resolve_lighteval_model_args(local: bool = False) -> str:
     else:
         batch_size_value = "1" if local else "32"
 
-    return f"trust_remote_code=True,batch_size={batch_size_value}"
+    return f"batch_size={batch_size_value}"
 
 
 @dataclass
@@ -437,7 +437,7 @@ def schedule_evals(
         lm_eval_include_path=lm_eval_include_path
         or str(files("oellm.resources") / "custom_lm_eval_tasks"),
         hf_hub_offline=_resolve_hf_hub_offline(local),
-        lighteval_model_args=_resolve_lighteval_model_args(local),  # Batch size
+        additional_model_args=_resolve_additional_model_args(local),  # Batch size
         evalchemy_dir=os.environ.get("EVALCHEMY_DIR", "/opt/evalchemy"),
     )
 
