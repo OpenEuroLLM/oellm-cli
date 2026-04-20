@@ -343,6 +343,18 @@ def _pre_download_datasets_from_specs(
                             trust_remote_code=trust_remote_code,
                         )
                     continue
+                if "Feature type" in str(e) and "not found" in str(e):
+                    hf_datasets_cache = os.environ.get(
+                        "HF_DATASETS_CACHE",
+                        str(Path.home() / ".cache" / "huggingface" / "datasets"),
+                    )
+                    safe_name = spec.repo_id.replace("/", "___")
+                    cache_dir = os.path.join(hf_datasets_cache, safe_name)
+                    raise RuntimeError(
+                        f"Cached metadata for '{label}' is incompatible with the installed "
+                        f"datasets version ('{e}'). Delete the stale cache and re-run:\n\n"
+                        f"    rm -rf {cache_dir}\n"
+                    ) from None
                 raise
 
             logging.debug(f"Finished downloading dataset '{label}'.")
