@@ -54,9 +54,7 @@ def _resolve_slurm_mem() -> str:
     if explicit_mem is not None and str(explicit_mem).strip() != "":
         return str(explicit_mem).strip()
 
-    logging.warning(
-        "SLURM_MEM not set; falling back to default memory request '96G'."
-    )
+    logging.warning("SLURM_MEM not set; falling back to default memory request '96G'.")
     return "96G"
 
 
