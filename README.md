@@ -133,7 +133,7 @@ If you need full manual control over all model args, set `MODEL_ARGS`,
 for example:
 
 ```bash
-MODEL_ARGS='batch_size=8, ...' oellm schedule-eval \
+MODEL_ARGS='batch_size=8' oellm schedule-eval \
   --models "model-name" --task_groups "belebele-eu-cf" --venv_path .venv
 ```
 
