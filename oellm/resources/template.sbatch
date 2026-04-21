@@ -2,6 +2,7 @@
 #SBATCH --job-name=oellm-eval
 #SBATCH --time={time_limit}
 #SBATCH --gres=gpu:$GPUS_PER_NODE
+#SBATCH --mem={slurm_mem}
 #SBATCH --output={log_dir}/%x-%A-%a.out
 #SBATCH --partition=$PARTITION
 #SBATCH --account=$ACCOUNT
@@ -129,6 +130,9 @@ do
 
     case "$suite_normalized" in
         lm_eval|lm-eval|lm-eval-harness)
+            echo
+            echo "----------------------------------------------------"
+            echo "lm_eval Execution"
             run_python -m lm_eval --model hf \
                 --model_args pretrained="$model_path",trust_remote_code=True \
                 --tasks "$task_path" \
@@ -137,6 +141,7 @@ do
                 --trust_remote_code \
                 ${{LM_EVAL_INCLUDE_PATH:+--include_path $LM_EVAL_INCLUDE_PATH}} \
                 ${{LIMIT:+--limit $LIMIT}}
+            echo "----------------------------------------------------"
             ;;
         lighteval|light-eval)
             LIGHT_TASK="$task_path"
@@ -162,7 +167,7 @@ do
             if [ -n "$VENV_PATH" ]; then
                 source "$VENV_PATH/bin/activate"
                 lighteval accelerate \
-                    "model_name=$model_path,{lighteval_model_args}" \
+                    "model_name=$model_path,trust_remote_code=True,{additional_model_args}" \
                     "$LIGHT_TASK_ARG" \
                     --load-tasks-multilingual \
                     --output-dir "$RESULTS_SUBDIR" \
@@ -175,7 +180,7 @@ do
                     $EVAL_SIF_PATH \
                     env CUDA_VISIBLE_DEVICES=$GPU_DEVICES \
                     lighteval accelerate \
-                        "model_name=$model_path,{lighteval_model_args}" \
+                        "model_name=$model_path,{additional_model_args}" \
                         "$LIGHT_TASK_ARG" \
                         --load-tasks-multilingual \
                         --output-dir "$RESULTS_SUBDIR" \
@@ -206,6 +211,7 @@ do
             ;;
     esac
 
+    echo "----------------------------------------------------"
     echo "Evaluation finished for model: $model_path"
 
 done
