@@ -1,4 +1,5 @@
 task_metrics:
+  function_calling: function_name_acc
   mmlu: acc
   belebele_bul_Cyrl_cf: acc_norm
   belebele_hrv_Latn_cf: acc_norm
@@ -496,6 +497,14 @@ task_groups:
         n_shots: [0]
         suite: evalchemy
         dataset: livecodebench/code_generation_lite
+
+  function-calling:
+    description: "Function calling benchmark (0-shot) — Gorilla OpenFunctions v2. Metrics: function_name_acc (lenient, checks function name) and exact_match (strict, full call)."
+    suite: lm-eval-harness
+    n_shots: [0]
+    dataset: gorilla-llm/gorilla-openfunctions-v2
+    tasks:
+      - task: function_calling
 
 super_groups:
   oellm-multilingual:
