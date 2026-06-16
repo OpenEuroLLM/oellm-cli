@@ -113,7 +113,11 @@ def _cluster_name() -> str:
         result = subprocess.run(
             ["scontrol", "show", "config"], capture_output=True, text=True, timeout=5
         )
-        match = re.search(r"ClusterName\s*=\s*(\S+)", result.stdout) if result.returncode == 0 else None
+        match = (
+            re.search(r"ClusterName\s*=\s*(\S+)", result.stdout)
+            if result.returncode == 0
+            else None
+        )
         if match:
             return match.group(1).strip().lower()
     except (FileNotFoundError, subprocess.TimeoutExpired):
