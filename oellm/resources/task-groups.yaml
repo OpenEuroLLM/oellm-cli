@@ -701,7 +701,7 @@ task_groups:
       - task: arc_challenge_mt_is  # no subset in the source dataset
 
   reasoning:
-    description: "Reasoning tasks: GSM8k (4-shot), IFEval (0-shot), MBPP (3-shot), GPQA-Diamond (0-shot), MATH500 (0-shot), LiveCodeBench (0-shot)"
+    description: "Reasoning tasks: GSM8k (4-shot), IFEval (0-shot), MBPP (3-shot), GPQA-Diamond (0-shot), MATH500 (0-shot), LiveCodeBench (0-shot), HumanEval (0-shot), AIME24 (0-shot), AIME25 (0-shot), AMC23 (0-shot)"
     suite: lm-eval-harness
     tasks:
       - task: gsm8k
@@ -724,6 +724,18 @@ task_groups:
         n_shots: [0]
         suite: evalchemy
         dataset: livecodebench/code_generation_lite
+      - task: HumanEval
+        n_shots: [0]
+        suite: evalchemy
+      - task: AIME24
+        n_shots: [0]
+        suite: evalchemy
+      - task: AIME25
+        n_shots: [0]
+        suite: evalchemy
+      - task: AMC23
+        n_shots: [0]
+        suite: evalchemy
 
   global-piqa-eu-completions:
     description: "Global PIQA European languages — multiple-choice completions (0-shot, mrlbenchmarks/global-piqa-nonparallel)"
