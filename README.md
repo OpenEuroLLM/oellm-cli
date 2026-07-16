@@ -50,6 +50,7 @@ Available task groups:
 - `flores-200-eu-to-eng` / `flores-200-eng-to-eu` - Translation tasks
 - `global-mmlu-eu` - Global MMLU in EU languages
 - `mgsm-eu` - Multilingual GSM benchmarks
+- `polymath-eu-low` / `polymath-eu-medium` / `polymath-eu-high` / `polymath-eu-top` - PolyMath multilingual math reasoning (EU languages, 0-shot, `\boxed{}` answer extraction), one group per difficulty tier
 - `generic-multilingual` - XWinograd, XCOPA, XStoryCloze
 - `include` - INCLUDE benchmarks
 
@@ -273,7 +274,22 @@ export UV_CACHE_DIR="$basedir/cache/uv-cache"
 export UV_INSTALL_DIR="$basedir/local"
 export UV_PYTHON_INSTALL_DIR="$basedir/local/share/uv/python"
 export UV_TOOL_DIR="$basedir/cache/uv-tool-cache"
-export HF_HOME="$basedir//cache/huggingface"
+export HF_HOME="$basedir/cache/huggingface"
+```
+
+Then, please install the virtual environment that is compatible with UFAL cluster as follows:
+```bash
+uv venv --python 3.11
+uv pip install -r requirements-venv-ufal.txt --no-deps
+```
+
+To run an evaluation, you **MUST** include the `--venv_path <installed_venv_path>`, as the UFAL cluster does not support containers (for now, Jun 23 2026), for example:
+```bash
+oellm-eval schedule \
+    --models "EleutherAI/pythia-160m" \
+    --tasks "gsm8k" \
+    --n_shot 0 \
+    --venv_path .venv
 ```
 
 Later, we will add recommendation for a project-wide setting to share tools and models.

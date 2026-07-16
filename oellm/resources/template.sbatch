@@ -8,6 +8,7 @@
 #SBATCH --account=$ACCOUNT
 #SBATCH --error={log_dir}/%x-%A-%a.err
 #SBATCH --array=0-{array_limit}%{max_array_len}
+#SBATCH --nodes=$NODES
 #SBATCH --nodelist=$NODELIST
 
 
@@ -25,6 +26,10 @@ export HF_HUB_OFFLINE={hf_hub_offline}
 
 # Path to the shared Singularity image that contains all runtime deps (container mode)
 export EVAL_SIF_PATH="$EVAL_BASE_DIR/$EVAL_CONTAINER_IMAGE"
+
+export MIOPEN_USER_DB_PATH="/tmp/$USER-miopen-${{SLURM_JOB_ID:-$$}}"
+export MIOPEN_CUSTOM_CACHE_DIR="$MIOPEN_USER_DB_PATH"
+mkdir -p "$MIOPEN_USER_DB_PATH"
 
 echo "Running eval on $CSV_PATH with $NUM_JOBS array jobs distributing $TOTAL_EVALS evaluations"
 echo "hostname: "`hostname`
@@ -142,6 +147,7 @@ do
                 --output_path "{evals_dir}/$(openssl rand -hex 5).json" \
                 --trust_remote_code \
                 ${{LM_EVAL_INCLUDE_PATH:+--include_path $$LM_EVAL_INCLUDE_PATH}} \
+                --batch_size auto \
                 ${{LIMIT:+--limit $LIMIT}}
             echo "----------------------------------------------------"
             ;;
