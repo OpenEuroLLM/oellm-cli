@@ -128,7 +128,7 @@ class MyTask(BaseTask):
     # Optional
     @property
     def task_group_name(self) -> str:
-        return "my-benchmark"           # default: name with _ replaced by -
+        return "my-benchmark"  # default: name with _ replaced by -
 
     @property
     def description(self) -> str:
@@ -208,6 +208,7 @@ CLUSTER_ENV_VARS = ["MY_DATA_DIR"]
 
 def detect_model_flags(model_path: str) -> str | None:
     from oellm.contrib.my_suite.adapter import MyModelAdapter
+
     return MyModelAdapter(model_path).to_contrib_flags()
 
 
