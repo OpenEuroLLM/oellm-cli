@@ -80,6 +80,12 @@ task_metrics:
   xcsqa_nld_Latn: acc_norm
   xcsqa_pol_Latn: acc_norm
   xcsqa_por_Latn: acc_norm
+  xnli_bul_Cyrl: acc
+  xnli_deu_Latn: acc
+  xnli_ell_Grek: acc
+  xnli_eng_Latn: acc
+  xnli_spa_Latn: acc
+  xnli_fra_Latn: acc
   copa: acc
   lambada_openai: acc
   openbookqa: acc_norm
@@ -450,6 +456,25 @@ task_groups:
         subset: X-CSQA-pl
       - task: xcsqa_por_Latn
         subset: X-CSQA-pt
+
+  xnli-eu:
+    description: "XNLI EU natural language inference (0-shot, acc)"
+    suite: lm-eval-harness
+    n_shots: [0]
+    dataset: facebook/xnli
+    tasks:
+      - task: xnli_bul_Cyrl
+        subset: bg
+      - task: xnli_deu_Latn
+        subset: de
+      - task: xnli_ell_Grek
+        subset: el
+      - task: xnli_eng_Latn
+        subset: en
+      - task: xnli_spa_Latn
+        subset: es
+      - task: xnli_fra_Latn
+        subset: fr
 
   flores-200-eu-to-eng:
     description: "Flores 200 EU->English translation (0-shot, chrf++)."
