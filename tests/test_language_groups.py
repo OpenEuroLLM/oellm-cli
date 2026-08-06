@@ -23,7 +23,7 @@ from oellm.task_groups import (
 
 # Multilingual groups still defined with explicit per-language task lists
 # (not {lang} templates) whose tasks must also resolve to a language.
-EXPLICIT_MULTILINGUAL_GROUPS = ["mgsm-eu", "include", "xcsqa-eu", "pawsx-eu"]
+EXPLICIT_MULTILINGUAL_GROUPS = ["mgsm-eu", "include", "xcsqa-eu", "pawsx-eu", "xnli-eu"]
 
 
 def _raw_yaml() -> dict:
