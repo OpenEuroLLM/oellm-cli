@@ -474,6 +474,8 @@ task_groups:
       - task: pawsx_spa_Latn
         subset: es
       - task: pawsx_fra_Latn
+        subset: fr
+
   xnli-eu:
     description: "XNLI EU natural language inference (0-shot, acc)"
     suite: lm-eval-harness
