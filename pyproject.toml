@@ -27,6 +27,7 @@ dev = [
 # ``uv tool install`` — see docs/VENV.md.
 text = [
     "lm-eval>=0.4.12",
+    "latex2sympy2_extended",  # required by the polymath tasks
     "torch",
     "transformers",
     "accelerate",

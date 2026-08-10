@@ -14,6 +14,7 @@ From: rocm/pytorch:rocm6.4.1_ubuntu24.04_py3.12_pytorch_release_2.7.1
     # lm-eval and dependencies (system Python)
     uv pip install --system --break-system-packages \
         lm-eval==0.4.12 \
+        latex2sympy2_extended \
         transformers \
         "datasets<4.0.0" \
         wandb \
