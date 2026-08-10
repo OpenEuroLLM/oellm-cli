@@ -80,6 +80,10 @@ task_metrics:
   xcsqa_nld_Latn: acc_norm
   xcsqa_pol_Latn: acc_norm
   xcsqa_por_Latn: acc_norm
+  pawsx_deu_Latn: acc
+  pawsx_eng_Latn: acc
+  pawsx_spa_Latn: acc
+  pawsx_fra_Latn: acc
   xnli_bul_Cyrl: acc
   xnli_deu_Latn: acc
   xnli_ell_Grek: acc
@@ -456,6 +460,21 @@ task_groups:
         subset: X-CSQA-pl
       - task: xcsqa_por_Latn
         subset: X-CSQA-pt
+
+  pawsx-eu:
+    description: "PAWS-X EU paraphrase detection (0-shot, acc)"
+    suite: lm-eval-harness
+    n_shots: [0]
+    dataset: google-research-datasets/paws-x
+    tasks:
+      - task: pawsx_deu_Latn
+        subset: de
+      - task: pawsx_eng_Latn
+        subset: en
+      - task: pawsx_spa_Latn
+        subset: es
+      - task: pawsx_fra_Latn
+        subset: fr
 
   xnli-eu:
     description: "XNLI EU natural language inference (0-shot, acc)"
