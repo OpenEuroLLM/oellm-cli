@@ -1,0 +1,4 @@
+dataset_name: bg
+doc_to_choice: '{{[premise+", правилно? да, "+hypothesis,premise+", правилно? така, "+hypothesis,premise+", правилно? не, "+hypothesis]}}'
+include: _default_template_yaml
+task: xnli_bul_Cyrl
