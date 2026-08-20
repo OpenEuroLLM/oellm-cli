@@ -1,0 +1,22 @@
+tag:
+  - pawsx_eu
+# Same prompt format as lm-eval's built-in paws-x tasks, but with the canonical
+# `google-research-datasets/paws-x` dataset id: the built-in tasks still point
+# at the legacy `paws-x` id, which recent huggingface_hub versions reject
+# ("Repository id must be 'namespace/name'") and which cannot be resolved from
+# a pre-downloaded cache on offline compute nodes.
+dataset_path: google-research-datasets/paws-x
+output_type: multiple_choice
+training_split: train
+validation_split: validation
+test_split: test
+process_docs: !function utils.process_docs_paraphrases
+doc_to_text: ""
+doc_to_target: label
+target_delimiter: ""
+metric_list:
+  - metric: acc
+    aggregation: mean
+    higher_is_better: true
+metadata:
+  version: 1.0
