@@ -63,6 +63,12 @@ METRIC_NATIVE_SCALE: dict[str, float] = {
     "mme_cognition_score": 800.0,
     "mme_perception_score": 2000.0,
     # ── Contrib / additional 0–1 metrics ──
+    # Spurious-robustness suite. worst_group_accuracy is a minimum over
+    # subgroup accuracies, so it shares accuracy's 0–1 scale.
+    "worst_group_accuracy": 1.0,
+    "avg_accuracy": 1.0,
+    "top1_accuracy": 1.0,
+    "top5_accuracy": 1.0,
     "gIoU": 1.0,
     "meteor": 1.0,
     "string_match": 1.0,

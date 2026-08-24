@@ -949,3 +949,67 @@ class TestMultiGpuSharding:
         _FakeInferencePopen.returncode_for_dir = {"shard_1": 3}
         with pytest.raises(RuntimeError, match="shard 1 exited with code 3"):
             self._run(rr_env, tmp_path)
+
+
+class TestPerRoundBreakdown:
+    """Every metric is reported per round, not just gIoU and bbox_AP.
+
+    The benchmark measures error accumulation across dialogue turns, and rounds
+    hold very different sample counts, so the corpus-level figures alone cannot
+    show degradation — an overall number is dominated by the early turns.
+    """
+
+    def _write(self, tmp_path, samples):
+        (tmp_path / "output_0.json").write_text(json.dumps(samples))
+
+    def test_all_metrics_reported_per_round(self, tmp_path):
+        from oellm.contrib.regiondial_bench.suite import _aggregate_shards
+
+        # One image, three turns, degrading: iou 1.0 -> 0.6 -> 0.2
+        self._write(
+            tmp_path,
+            [
+                {"image_id": "a", "intersection": 100, "union": 100, "bbox_iou": 1.0},
+                {"image_id": "a", "intersection": 60, "union": 100, "bbox_iou": 1.0},
+                {"image_id": "a", "intersection": 20, "union": 100, "bbox_iou": 0.0},
+            ],
+        )
+        m = _aggregate_shards(str(tmp_path))
+
+        for rnd in (1, 2, 3):
+            for key in ("gIoU", "cIoU", "bbox_AP"):
+                assert f"{key}_R{rnd}" in m, f"missing {key}_R{rnd}"
+            for thr in ("0.3", "0.5", "0.7", "0.9"):
+                assert f"pass_rate_{thr}_R{rnd}" in m
+            assert m[f"n_samples_R{rnd}"] == 1
+
+        # Hand-computed: the degradation must be visible round by round.
+        assert m["gIoU_R1"] == pytest.approx(1.0)
+        assert m["gIoU_R2"] == pytest.approx(0.6)
+        assert m["gIoU_R3"] == pytest.approx(0.2)
+        assert m["cIoU_R2"] == pytest.approx(0.6)
+        assert m["bbox_AP_R3"] == pytest.approx(0.0)
+        # pass_rate uses a strict >, so 0.6 clears 0.5 but not 0.7.
+        assert m["pass_rate_0.5_R2"] == pytest.approx(1.0)
+        assert m["pass_rate_0.7_R2"] == pytest.approx(0.0)
+
+    def test_overall_hides_what_per_round_shows(self, tmp_path):
+        """The reason this breakdown exists, as an executable example."""
+        from oellm.contrib.regiondial_bench.suite import _aggregate_shards
+
+        # Round 1 has 4 samples (all pass), round 2 has 1 (fails). The overall
+        # pass rate is 0.8 and looks healthy; round 2 is a total failure.
+        samples = [
+            {"image_id": f"i{i}", "intersection": 90, "union": 100, "bbox_iou": 1.0}
+            for i in range(4)
+        ]
+        samples.append(
+            {"image_id": "i0", "intersection": 0, "union": 100, "bbox_iou": 0.0}
+        )
+        self._write(tmp_path, samples)
+        m = _aggregate_shards(str(tmp_path))
+
+        assert m["pass_rate_0.5"] == pytest.approx(0.8)
+        assert m["pass_rate_0.5_R1"] == pytest.approx(1.0)
+        assert m["pass_rate_0.5_R2"] == pytest.approx(0.0)
+        assert m["n_samples_R1"] == 4 and m["n_samples_R2"] == 1

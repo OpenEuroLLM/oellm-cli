@@ -256,3 +256,72 @@ class TestTimeSeriesExamTask:
         assert first_block.count(",") <= 130
         assert ts_utils.doc_to_choice(doc) == [" A", " B"]
         assert ts_utils.doc_to_target(doc) == 1
+
+
+class TestSpuriousRobustnessSuite:
+    """Conformance for the OpenCLIP spurious-robustness contrib suite."""
+
+    def test_groups_wired_and_metrics_mapped(self):
+        from oellm.results import _load_task_metrics
+        from oellm.task_groups import _expand_task_groups
+
+        metrics = _load_task_metrics()
+        assert metrics["spurious_imagenet"] == "top1_accuracy"
+        assert metrics["spurious_celeba"] == "worst_group_accuracy"
+        assert metrics["spurious_urbancars"] == "worst_group_accuracy"
+
+        expanded = _expand_task_groups(["spurious-celeba"])
+        assert [(r.task, r.n_shot, r.suite) for r in expanded] == [
+            ("spurious_celeba", 0, "spurious_robustness")
+        ]
+
+        # UrbanCars is a separate suite (its data dir is a required env var), so
+        # the combined group covers only the two Hub-staged benchmarks.
+        combined = _expand_task_groups(["spurious-robustness"])
+        assert {r.task for r in combined} == {"spurious_imagenet", "spurious_celeba"}
+
+        urbancars = _expand_task_groups(["spurious-urbancars"])
+        assert [(r.task, r.n_shot, r.suite) for r in urbancars] == [
+            ("spurious_urbancars", 0, "spurious_urbancars")
+        ]
+
+    def test_pinned_metrics_have_a_native_scale(self):
+        """A pinned metric with no scale entry renders a blank normalized column."""
+        from oellm.results import METRIC_NATIVE_SCALE
+
+        for metric in ("top1_accuracy", "worst_group_accuracy", "avg_accuracy"):
+            assert METRIC_NATIVE_SCALE[metric] == 1.0
+
+    def test_prompt_construction_on_synthetic_doc(self):
+        """The class prompt sets are frozen: scores move if this test is edited."""
+        from oellm.contrib.spurious_robustness.prompts import (
+            CELEBA_PROMPTS,
+            URBANCARS_PROMPTS,
+        )
+
+        assert CELEBA_PROMPTS["blonde"][0] == "a photo of a person with blonde hair"
+        assert len(CELEBA_PROMPTS["blonde"]) == 4
+        assert len(CELEBA_PROMPTS["non-blonde"]) == 8
+        # Non-blonde is enumerated, never phrased as a negation.
+        assert not any("not " in p for p in CELEBA_PROMPTS["non-blonde"])
+        # Neither spurious attribute may leak into the UrbanCars prompts.
+        for prompts in URBANCARS_PROMPTS.values():
+            assert len(prompts) == 1
+            assert "background" not in prompts[0]
+            assert "urban" not in prompts[0] and "country" not in prompts[0]
+
+    def test_parse_results_claims_own_and_rejects_foreign(self):
+        from oellm.contrib.spurious_robustness import suite
+
+        mine = {
+            "model_name_or_path": "hf-hub:laion/CLIP-ViT-B-32",
+            "results": {"spurious_celeba": {"worst_group_accuracy": 0.25}},
+            "configs": {"spurious_celeba": {"num_fewshot": 0}},
+        }
+        assert suite.parse_results(mine) == (
+            "hf-hub:laion/CLIP-ViT-B-32",
+            "spurious_celeba",
+            0,
+            {"worst_group_accuracy": 0.25},
+        )
+        assert suite.parse_results({"results": {"vqav2_val": {"vqa_score": 0.7}}}) is None

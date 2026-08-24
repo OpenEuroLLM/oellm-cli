@@ -337,7 +337,7 @@ def _aggregate_shards(
 
     Computes:
     - Aggregate metrics across all rounds: gIoU, cIoU, bbox_AP, pass_rate_*
-    - Per-round metrics (R1–R7): gIoU_R1..R7, bbox_AP_R1..R7
+    - The same metrics per round (R1–R7), plus ``n_samples_R*``
 
     When *expected_samples* is given, raises if the aggregated sample count
     differs — this catches shards that silently evaluated a partial (or
@@ -409,9 +409,18 @@ def _aggregate_shards(
         rnd = image_turn_counter[image_id]
         rounds_map[rnd].append(sample_dict)
 
-    per_round_metrics = [GIoU(), BboxAP()]
+    per_round_metrics = [
+        GIoU(),
+        CIoU(),
+        BboxAP(),
+        PassRate(0.3),
+        PassRate(0.5),
+        PassRate(0.7),
+        PassRate(0.9),
+    ]
     for rnd in sorted(rounds_map):
         rnd_samples = rounds_map[rnd]
+        metrics[f"n_samples_R{rnd}"] = len(rnd_samples)
         for m in per_round_metrics:
             val = m.compute(rnd_samples)
             metrics[f"{m.name}_R{rnd}"] = val

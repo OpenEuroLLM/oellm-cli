@@ -76,6 +76,16 @@ audiobench = [
     "soundfile",
     "librosa",
 ]
+# Spurious-robustness contrib plugin.  Scores OpenCLIP-family dual encoders by
+# image/text embedding similarity, so it needs open_clip rather than an
+# lm-eval-style generative engine; it shares a venv with nothing else.
+spurious-robustness = [
+    "open_clip_torch>=2.24",
+    "torch",
+    "pillow",
+    # CelebA and ImageNet are read as HF parquet; UrbanCars is a local image tree.
+    "datasets<4.0.0",
+]
 # Evalchemy reasoning suite — uses a forked lm-eval that cannot coexist
 # with mainline lm-eval (different fork at the same import path).  Install
 # in its own venv: ``uv pip install '.[evalchemy]'``.  Pinned versions are
