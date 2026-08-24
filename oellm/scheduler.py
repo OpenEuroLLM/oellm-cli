@@ -638,8 +638,13 @@ def schedule_evals(
         slurm_mem=slurm_mem,
         limit=limit if limit else "",  # Sample limit for quick testing
         venv_path=venv_path or "",
-        lm_eval_include_path=lm_eval_include_path
-        or str(files("oellm.resources") / "custom_lm_eval_tasks"),
+        lm_eval_include_path=str(
+            Path(
+                lm_eval_include_path
+                or os.environ.get("LM_EVAL_INCLUDE_PATH")
+                or str(files("oellm.resources") / "custom_lm_eval_tasks")
+            ).resolve()
+        ),
         hf_hub_offline=_resolve_hf_hub_offline(local),
         additional_model_args=additional_model_args,
         evalchemy_dir=os.environ.get("EVALCHEMY_DIR", "/opt/evalchemy"),
