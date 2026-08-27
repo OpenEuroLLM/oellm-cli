@@ -26,6 +26,7 @@ export OELLM_QUANTIZATION="{quantization}"
 LM_EVAL_TRC="{lm_eval_trc}"
 VENV_PATH="{venv_path}"
 LM_EVAL_INCLUDE_PATH="{lm_eval_include_path}"
+LM_EVAL_BATCH_SIZE="{lm_eval_batch_size}"
 
 # Compute nodes are air-gapped — every dataset must be cache-resolved.
 export HF_HOME=$HF_HOME
@@ -180,7 +181,7 @@ do
                 --output_path "{evals_dir}/$(openssl rand -hex 5).json" \
                 ${{LM_EVAL_TRC:+--trust_remote_code}} \
                 ${{LM_EVAL_INCLUDE_PATH:+--include_path $$LM_EVAL_INCLUDE_PATH}} \
-                --batch_size auto \
+                --batch_size "${{LM_EVAL_BATCH_SIZE:-auto}}" \
                 ${{LIMIT:+--limit $LIMIT}}
             rc=$?
             echo "----------------------------------------------------"
@@ -272,7 +273,7 @@ do
                         --model hf \
                         --tasks "$task_path" \
                         --model_args "{evalchemy_model_args}" \
-                        --batch_size auto \
+                        --batch_size "${{LM_EVAL_BATCH_SIZE:-auto}}" \
                         --output_path "$RESULTS_SUBDIR" \
                         ${{LIMIT:+--limit $LIMIT}} < /dev/null
                 )

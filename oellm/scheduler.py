@@ -73,6 +73,34 @@ def _resolve_slurm_mem() -> str:
     return "96G"
 
 
+def _resolve_lm_eval_batch_size(local: bool = False) -> str:
+    """Return the ``--batch_size`` value for the lm_eval / evalchemy engines.
+
+    ``auto`` asks lm_eval to search for the largest batch that fits, halving
+    whenever CUDA raises OOM.  Without a GPU that OOM never arrives, so the
+    search probes at ``max_batch_size`` (64) times the prompt length and can
+    allocate tens of GB on a long-prompt task before the machine gives out.
+    Local runs therefore get an explicit small batch; cluster runs keep
+    ``auto``.  ``BATCH_SIZE`` overrides both.
+    """
+    fallback = "8" if local else "auto"
+    batch_size = os.environ.get("BATCH_SIZE")
+    if batch_size is not None and str(batch_size).strip() != "":
+        batch_size_value = str(batch_size).strip()
+        try:
+            if int(batch_size_value) < 1:
+                raise ValueError
+        except ValueError:
+            logging.warning(
+                "Invalid BATCH_SIZE=%r; falling back to batch_size=%s.",
+                batch_size,
+                fallback,
+            )
+        else:
+            return batch_size_value
+    return fallback
+
+
 def _resolve_additional_model_args(local: bool = False) -> str:
     """Return model args for lighteval, defaulting to an explicit batch size.
 
@@ -654,6 +682,7 @@ def schedule_evals(
         evalchemy_model_args=evalchemy_model_args,
         lighteval_trc=lighteval_trc,
         lm_eval_trc="1" if trust_remote_code else "",
+        lm_eval_batch_size=_resolve_lm_eval_batch_size(local),
     )
 
     # Drop optional #SBATCH directives whose env var is unset, so safe_substitute
