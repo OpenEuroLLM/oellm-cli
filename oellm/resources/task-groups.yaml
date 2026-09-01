@@ -298,6 +298,9 @@ task_metrics:
   multiblimp_tur: acc_norm
   multiblimp_ukr: acc_norm
   multiblimp_isl: acc_norm
+  xcopa:et: acc
+  xcopa:it: acc
+  xcopa:tr: acc
   global_piqa_completions_als_latn: acc_norm
   global_piqa_completions_bos_latn: acc_norm
   global_piqa_completions_bul_cyrl: acc_norm
@@ -777,6 +780,16 @@ task_groups:
       - task: "multiblimp_{lang}"
         subset: "{lang}"
 
+  xcopa-eu:
+    description: "XCOPA commonsense causal reasoning (0-shot) for EU languages."
+    suite: lighteval
+    n_shots: [0]
+    dataset: cambridgeltl/xcopa
+    valid_langs: [et, it, tr]
+    tasks:
+      - task: "xcopa:{lang}"
+        subset: "{lang}"
+
   arc-challenge-mt-eu:
     description: "ARC Challenge multilingual (22 European languages)"
     suite: lm-eval-harness
@@ -906,3 +919,4 @@ super_groups:
       - task: generic-multilingual
       - task: include
       - task: multiblimp-eu
+      - task: xcopa-eu
