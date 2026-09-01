@@ -1,0 +1,4 @@
+dataset_name: fr
+doc_to_choice: '{{[sentence1+", n''est-ce pas? Non, "+sentence2, sentence1+", n''est-ce pas? Oui, "+sentence2]}}'
+include: _default_template_yaml
+task: pawsx_fra_Latn

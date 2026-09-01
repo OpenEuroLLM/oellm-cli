@@ -1,0 +1,4 @@
+dataset_name: de
+doc_to_choice: '{{[sentence1+", richtig? Nein, "+sentence2, sentence1+", richtig? Ja, "+sentence2]}}'
+include: _default_template_yaml
+task: pawsx_deu_Latn

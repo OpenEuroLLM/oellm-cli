@@ -18,7 +18,7 @@ A lightweight CLI for scheduling LLM evaluations across multiple HPC clusters us
 
 ```bash
 # Install the package
-uv tool install -p 3.12 git+https://github.com/OpenEuroLLM/oellm-evals.git
+uv tool install -p 3.12 git+https://github.com/OpenEuroLLM/oellm-eval.git
 
 # Run evaluations using a task group (recommended)
 oellm-eval schedule \
@@ -50,6 +50,7 @@ Available task groups:
 - `flores-200-eu-to-eng` / `flores-200-eng-to-eu` - Translation tasks
 - `global-mmlu-eu` - Global MMLU in EU languages
 - `mgsm-eu` - Multilingual GSM benchmarks
+- `polymath-eu-low` / `polymath-eu-medium` / `polymath-eu-high` / `polymath-eu-top` - PolyMath multilingual math reasoning (EU languages, 0-shot, `\boxed{}` answer extraction), one group per difficulty tier
 - `generic-multilingual` - XWinograd, XCOPA, XStoryCloze
 - `include` - INCLUDE benchmarks
 
@@ -66,6 +67,59 @@ oellm-eval schedule --models "model-name" --task_groups "belebele-eu-5-shot,glob
 # Use a super group
 oellm-eval schedule --models "model-name" --task_groups "oellm-multilingual"
 ```
+
+### Filtering by language
+
+Scope a task group (or super group) to one or more languages by attaching a
+`[...]` bracket to its name. Languages use canonical
+[`lang_Script`](https://en.wikipedia.org/wiki/IETF_language_tag) codes (e.g.
+`deu_Latn`, `fra_Latn`); codes inside a bracket may be separated by `,` or `|`.
+
+```bash
+# The applicable subset of the multilingual super group for one language —
+# the simplest way to evaluate a monolingual model on its language across
+# every multilingual benchmark (FLORES, Belebele, Global-MMLU, INCLUDE, MGSM,
+# …), spanning both lm-eval-harness and lighteval.
+oellm-eval schedule --models "my-model" --task_groups "oellm-multilingual[deu_Latn]"
+
+# Every benchmark in the registry for one language. `all` is an auto-generated
+# super group (always spans every task group, no hand-maintenance) — use it for
+# the complete per-language set rather than the curated `oellm-multilingual`.
+oellm-eval schedule --models "my-model" --task_groups "all[deu_Latn]"
+
+# A single benchmark, scoped to German.
+oellm-eval schedule --models "my-model" --task_groups "sib200-eu[deu_Latn]"
+
+# Multiple languages inside one bracket.
+oellm-eval schedule --models "my-model" --task_groups "sib200-eu[fra_Latn|deu_Latn]"
+
+# Different languages per benchmark in one run — French SIB-200 *and* German FLORES.
+oellm-eval schedule --models "my-model" \
+    --task_groups "sib200-eu[fra_Latn],flores-200-eu-to-eng[deu_Latn]"
+
+# No bracket: the group is unchanged — all of its languages.
+oellm-eval schedule --models "my-model" --task_groups "sib200-eu"
+```
+
+Each task's language is derived in code from the `{lang}` value of a
+`valid_langs` template, or the task's `subset` for explicitly-listed
+multilingual groups (see [docs/TASKS.md](docs/TASKS.md)). No per-task tagging is
+needed — adding a benchmark with a `valid_langs` template makes its languages
+filterable automatically.
+
+Notes:
+
+- Use the precise canonical `lang_Scri` code (e.g. `deu_Latn`). Looser
+  spellings such as `de` or `german` are rejected; if you pass one, the error
+  names the canonical code to use instead.
+- An **unknown** code (typo) errors and lists the valid codes.
+- A bracket that matches **no task** in its group (e.g.
+  `flores-200-eu-to-eng[ukr_Cyrl]`, since FLORES-EU has no Ukrainian) errors
+  rather than silently scheduling nothing.
+- When a bracket lists several languages and only **some** are present in the
+  group, it keeps the matches and warns about the rest. Some languages simply
+  lack certain benchmarks (e.g. Italian/Portuguese have no MGSM), so a super
+  group bracket transparently omits the missing ones.
 
 ## Running Locally (without SLURM)
 
@@ -137,6 +191,26 @@ MODEL_ARGS='batch_size=8' oellm-eval schedule \
   --models "model-name" --task_groups "belebele-eu-cf" --venv_path .venv
 ```
 
+### Workaround for `acc_norm` tasks
+
+> [!WARNING]
+> There is currently an upstream `lighteval` issue affecting tasks that use the
+> `acc_norm` metric. `LogProbTokenNorm` may raise an `IndexError` when
+> `choices_tokens` is shorter than `choices_logprob`.
+>
+> Until the upstream fix is available, manually apply the change proposed in
+> [huggingface/lighteval#1171](https://github.com/huggingface/lighteval/pull/1171)
+> to `src/lighteval/metrics/normalizations.py` in your local `lighteval`
+> installation.
+>
+> When using the patched local installation, pass `--venv_path .venv` (or the
+> path to your patched virtual environment) so that the modified `lighteval`
+> installation is used.
+>
+> See [huggingface/lighteval#1170](https://github.com/huggingface/lighteval/issues/1170)
+> for details about the bug and [OpenEuroLLM/oellm-eval#60](https://github.com/OpenEuroLLM/oellm-eval/pull/60)
+> for the previously documented workaround.
+
 ## ⚠️ Dataset Pre-Download Warning
 
 **Datasets are only automatically pre-downloaded for tasks defined in [`task-groups.yaml`](oellm/resources/task-groups.yaml).**
@@ -191,7 +265,7 @@ oellm-eval schedule --eval_csv_path custom_evals.csv
 ### General Installation
 
 ```bash
-uv tool install -p 3.12 git+https://github.com/OpenEuroLLM/oellm-evals.git
+uv tool install -p 3.12 git+https://github.com/OpenEuroLLM/oellm-eval.git
 ```
 
 Update to latest:
@@ -210,6 +284,37 @@ export UV_PYTHON_INSTALL_DIR="/p/project1/<project>/$USER/.local/share/uv/python
 export UV_TOOL_DIR="/p/project1/<project>/$USER/.cache/uv-tool-cache"
 ```
 
+### UFAL Specifics
+
+Due to limited space in `$HOME` on UFAL cluster, set these environment variables for your personal copies of tools and models:
+
+```bash
+basedir="/lnet/troja/tmp/$USER"
+export UV_CACHE_DIR="$basedir/cache/uv-cache"
+export UV_INSTALL_DIR="$basedir/local"
+export UV_PYTHON_INSTALL_DIR="$basedir/local/share/uv/python"
+export UV_TOOL_DIR="$basedir/cache/uv-tool-cache"
+export HF_HOME="$basedir/cache/huggingface"
+```
+
+Then, please install the virtual environment that is compatible with UFAL cluster as follows:
+```bash
+uv venv --python 3.11
+uv pip install -r requirements-venv-ufal.txt --no-deps
+```
+
+To run an evaluation, you **MUST** include the `--venv_path <installed_venv_path>`, as the UFAL cluster does not support containers (for now, Jun 23 2026), for example:
+```bash
+oellm-eval schedule \
+    --models "EleutherAI/pythia-160m" \
+    --tasks "gsm8k" \
+    --n_shot 0 \
+    --venv_path .venv
+```
+
+Later, we will add recommendation for a project-wide setting to share tools and models.
+
+
 ## Supported Clusters:
 We support: Leonardo, Lumi, Jureca, Jupiter, and Snellius
 
@@ -223,8 +328,8 @@ oellm-eval schedule --help
 
 ```bash
 # Clone and install in dev mode
-git clone https://github.com/OpenEuroLLM/oellm-evals.git
-cd oellm-evals
+git clone https://github.com/OpenEuroLLM/oellm-eval.git
+cd oellm-eval
 uv sync --extra dev
 
 # Run dataset validation tests
@@ -236,9 +341,9 @@ uv run oellm-eval schedule --models "EleutherAI/pythia-160m" --task_groups "open
 
 ## Deploying containers
 
-Containers are deployed manually since [PR #46](https://github.com/OpenEuroLLM/oellm-evals/pull/46) to save costs.
+Containers are deployed manually since [PR #46](https://github.com/OpenEuroLLM/oellm-eval/pull/46) to save costs.
 
-To build and deploy them, select run workflow in [Actions](https://github.com/OpenEuroLLM/oellm-evals/actions/workflows/build-and-push-apptainer.yml).
+To build and deploy them, select run workflow in [Actions](https://github.com/OpenEuroLLM/oellm-eval/actions/workflows/build-and-push-apptainer.yml).
 
 
 ## Troubleshooting

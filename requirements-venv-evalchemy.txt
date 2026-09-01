@@ -13,3 +13,4 @@ torch
 
 langdetect
 immutabledict
+fire
