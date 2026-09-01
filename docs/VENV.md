@@ -76,7 +76,7 @@ oellm-eval schedule \
 
 ## Evalchemy (reasoning)
 
-The `reasoning` task group includes 6 benchmarks: GSM8k, IFEval, and MBPP run via lm-eval-harness, while GPQADiamond, MATH500, and LiveCodeBench run via evalchemy.
+The `reasoning` task group includes 10 benchmarks: GSM8k, IFEval, and MBPP run via lm-eval-harness, while GPQADiamond, MATH500, LiveCodeBench, HumanEval, AIME24, AIME25, and AMC23 run via evalchemy.
 
 > **Note:** The evalchemy versions of GPQA and MATH500 differ from lm-eval-harness. Evalchemy uses free-form generation with CoT reasoning instead of log-likelihood scoring.
 

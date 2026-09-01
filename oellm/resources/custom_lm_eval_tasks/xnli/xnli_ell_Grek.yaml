@@ -1,0 +1,4 @@
+dataset_name: el
+doc_to_choice: '{{[premise+", σωστός? Ναί, "+hypothesis,premise+", σωστός? Έτσι, "+hypothesis,premise+", σωστός? όχι, "+hypothesis]}}'
+include: _default_template_yaml
+task: xnli_ell_Grek
