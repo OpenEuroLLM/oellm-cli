@@ -1,0 +1,4 @@
+dataset_name: de
+doc_to_choice: '{{[premise+", richtig? Ja, "+hypothesis,premise+", richtig? Auch, "+hypothesis,premise+", richtig? Nein, "+hypothesis]}}'
+include: _default_template_yaml
+task: xnli_deu_Latn
