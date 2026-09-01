@@ -1,0 +1,4 @@
+dataset_name: en
+doc_to_choice: '{{[premise+", right? Yes, "+hypothesis,premise+", right? Also, "+hypothesis,premise+", right? No, "+hypothesis]}}'
+include: _default_template_yaml
+task: xnli_eng_Latn

@@ -18,6 +18,7 @@ from oellm.task_groups import (
     _collect_dataset_specs,
     _expand_task_groups,
     _lookup_dataset_specs_for_tasks,
+    primary_metric_map,
     split_group_tokens,
 )
 from oellm.utils import (
@@ -120,6 +121,7 @@ def schedule_evals(
     lm_eval_include_path: str | None = None,
     local: bool = False,
     slurm_template_var: str | None = None,
+    nodelist: str | None = None,
 ) -> None:
     """
     Schedule evaluation jobs for a given set of models, tasks, and number of shots.
@@ -164,8 +166,11 @@ def schedule_evals(
             submitting to SLURM. Requires --venv_path. Skips cluster environment detection and
             runs all evaluations sequentially in a single process.
         slurm_template_var: JSON object of template variable overrides. Use exact env var names
-            (PARTITION, ACCOUNT, GPUS_PER_NODE, SLURM_MEM). "TIME" overrides the time limit.
-            Example: '{"PARTITION":"dev-g","ACCOUNT":"FOO","TIME":"02:00:00","GPUS_PER_NODE":2,"SLURM_MEM":"96G"}'
+            (PARTITION, ACCOUNT, GPUS_PER_NODE, SLURM_MEM, NODES). "TIME" overrides the time limit.
+            Example: '{"PARTITION":"dev-g","ACCOUNT":"FOO","TIME":"02:00:00","GPUS_PER_NODE":2,"SLURM_MEM":"96G","NODES":"1"}'
+        nodelist: Optional SLURM nodelist to constrain the job to specific node(s),
+            e.g. "tdll-3gpu4". Passed through as #SBATCH --nodelist. If unset, no
+            node constraint is added.
     """
     _setup_logging(verbose)
 
@@ -373,7 +378,9 @@ def schedule_evals(
     total_minutes = total_evals * minutes_per_eval
     max_minutes_per_job = 18 * 60  # 18 hours
     min_array_size_for_time = max(1, int(math.ceil(total_minutes / max_minutes_per_job)))
-    desired_array_size = min(128, total_evals) if total_evals >= 128 else total_evals
+    desired_array_size = (
+        min(max_array_len, total_evals) if total_evals >= max_array_len else total_evals
+    )
     if desired_array_size < min_array_size_for_time:
         desired_array_size = min_array_size_for_time
     actual_array_size = min(remaining_queue_capacity, desired_array_size, total_evals)
@@ -407,6 +414,10 @@ def schedule_evals(
                 os.environ[key] = str(value)
                 logging.info(f"Using slurm_template_var override: {key}={value}")
 
+    if nodelist:
+        os.environ["NODELIST"] = nodelist
+        logging.info(f"Constraining job to nodelist: {nodelist}")
+
     # Log the calculated values
     slurm_mem = _resolve_slurm_mem()
     logging.info("📊 Evaluation planning:")
@@ -438,12 +449,26 @@ def schedule_evals(
         slurm_mem=slurm_mem,
         limit=limit if limit else "",  # Sample limit for quick testing
         venv_path=venv_path or "",
-        lm_eval_include_path=lm_eval_include_path
-        or str(files("oellm.resources") / "custom_lm_eval_tasks"),
+        lm_eval_include_path=str(
+            Path(
+                lm_eval_include_path
+                or os.environ.get("LM_EVAL_INCLUDE_PATH")
+                or str(files("oellm.resources") / "custom_lm_eval_tasks")
+            ).resolve()
+        ),
         hf_hub_offline=_resolve_hf_hub_offline(local),
         additional_model_args=_resolve_additional_model_args(local),  # Batch size
         evalchemy_dir=os.environ.get("EVALCHEMY_DIR", "/opt/evalchemy"),
     )
+
+    if not os.environ.get("ACCOUNT"):
+        sbatch_script = sbatch_script.replace("#SBATCH --account=$ACCOUNT\n", "")
+
+    if not os.environ.get("NODES"):
+        sbatch_script = sbatch_script.replace("#SBATCH --nodes=$NODES\n", "")
+
+    if not os.environ.get("NODELIST"):
+        sbatch_script = sbatch_script.replace("#SBATCH --nodelist=$NODELIST\n", "")
 
     # substitute any $ENV_VAR occurrences
     sbatch_script = Template(sbatch_script).safe_substitute(os.environ)
@@ -545,56 +570,39 @@ def collect_results(
         output_csv: Output CSV filename (default: eval_results.csv)
         check: Check for missing evaluations and create a missing jobs CSV
         fetch_all_metrics: If True, include every computed metric for each task.
-            If False (default), only the single "primary" metric defined in
-            ``primary-metrics.yaml`` is kept per task.  When a task name does
-            not match any rule in that file, all metrics are kept as a fallback.
+            If False (default), keep only that task's primary metric, as declared
+            by the ``metric:`` key on its task group in ``task-groups.yaml`` (or
+            on the individual task entry, which overrides the group). Tasks that
+            declare no primary metric keep all of theirs.
         verbose: Enable verbose logging
     """
     import json
 
-    import yaml
-
     _setup_logging(verbose)
 
     # ------------------------------------------------------------------
-    # Load primary-metrics.yaml for standardised-metric filtering.
-    # The file maps task-name prefixes (ending with '*') or exact names
-    # to their canonical metric.  Rules are tested in YAML order; the
-    # first match wins.
+    # Primary metric per task, taken from the task definitions themselves
+    # (task-groups.yaml): a group declares `metric:`, an individual task may
+    # override it. Tasks whose group declares neither are absent from the map
+    # and keep every metric the harness computed.
     # ------------------------------------------------------------------
-    _primary_metrics_raw: list[tuple[str, str]] = []
-    if not fetch_all_metrics:
-        _pm_path = files("oellm.resources") / "primary-metrics.yaml"
-        try:
-            _pm_data = yaml.safe_load(_pm_path.read_text())
-            _primary_metrics_raw = list((_pm_data.get("primary_metrics") or {}).items())
-        except Exception as exc:
-            logging.warning(
-                "Could not load primary-metrics.yaml (%s); falling back to all metrics.",
-                exc,
-            )
-            _primary_metrics_raw = []
+    _primary_metrics: dict[str, str] = {} if fetch_all_metrics else primary_metric_map()
 
     def _resolve_primary_metric(
         task_name: str, metrics: list[tuple[str, float]]
     ) -> list[tuple[str, float]]:
-        """Return only the primary metric for *task_name*, or all metrics if
-        no rule matches (option-c fallback)."""
-        task_lower = task_name.lower()
-        for pattern, metric in _primary_metrics_raw:
-            pat_lower = pattern.lower()
-            if pat_lower.endswith("*"):
-                if task_lower.startswith(pat_lower[:-1]):
-                    matched_metric = metric.lower()
-                    filtered = [(m, v) for m, v in metrics if m.lower() == matched_metric]
-                    return filtered if filtered else metrics
-            else:
-                if task_lower == pat_lower:
-                    matched_metric = metric.lower()
-                    filtered = [(m, v) for m, v in metrics if m.lower() == matched_metric]
-                    return filtered if filtered else metrics
-        # No rule matched — return everything
-        return metrics
+        """Keep only the primary metric for *task_name*.
+
+        Falls back to every metric when the task declares no primary one, or
+        when the declared metric is absent from this result (so a task is never
+        silently dropped because of a metric-name mismatch).
+        """
+        primary = _primary_metrics.get(task_name)
+        if primary is None:
+            return metrics
+        wanted = primary.lower()
+        filtered = [(m, v) for m, v in metrics if m.lower() == wanted]
+        return filtered or metrics
 
     def _extract_all_metrics(result_dict: dict) -> list[tuple[str, float]]:
         """Return (metric_name, value) for every numeric entry in result_dict.

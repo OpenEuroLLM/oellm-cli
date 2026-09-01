@@ -8,6 +8,8 @@
 #SBATCH --account=$ACCOUNT
 #SBATCH --error={log_dir}/%x-%A-%a.err
 #SBATCH --array=0-{array_limit}%{max_array_len}
+#SBATCH --nodes=$NODES
+#SBATCH --nodelist=$NODELIST
 
 
 CSV_PATH="{csv_path}"
@@ -25,7 +27,12 @@ export HF_HUB_OFFLINE={hf_hub_offline}
 # Path to the shared Singularity image that contains all runtime deps (container mode)
 export EVAL_SIF_PATH="$EVAL_BASE_DIR/$EVAL_CONTAINER_IMAGE"
 
+export MIOPEN_USER_DB_PATH="/tmp/$USER-miopen-${{SLURM_JOB_ID:-$$}}"
+export MIOPEN_CUSTOM_CACHE_DIR="$MIOPEN_USER_DB_PATH"
+mkdir -p "$MIOPEN_USER_DB_PATH"
+
 echo "Running eval on $CSV_PATH with $NUM_JOBS array jobs distributing $TOTAL_EVALS evaluations"
+echo "hostname: "`hostname`
 echo "SLURM_JOB_ID: $SLURM_JOB_ID"
 echo "SLURM_ARRAY_JOB_ID: $SLURM_ARRAY_JOB_ID"
 echo "SLURM_ARRAY_TASK_ID: $SLURM_ARRAY_TASK_ID"
@@ -79,7 +86,7 @@ do
 
     # Build bind paths: always mount the shared eval directory, and additionally
     # bind the directory that contains the model checkpoint when the path exists
-    BIND_PATHS="$EVAL_BASE_DIR:$EVAL_BASE_DIR,$HF_HOME:$HF_HOME,$HF_DATASETS_CACHE:$HF_DATASETS_CACHE"
+    BIND_PATHS="$EVAL_BASE_DIR:$EVAL_BASE_DIR,$HF_HOME:$HF_HOME,$HF_DATASETS_CACHE:$HF_DATASETS_CACHE${{LM_EVAL_INCLUDE_PATH:+,$$LM_EVAL_INCLUDE_PATH:$$LM_EVAL_INCLUDE_PATH}}"
 
     if [ -e "$model_path" ]; then
         # If the model_path is a file, bind its parent directory; otherwise bind the dir itself
@@ -139,7 +146,8 @@ do
                 --num_fewshot "$n_shot" \
                 --output_path "{evals_dir}/$(openssl rand -hex 5).json" \
                 --trust_remote_code \
-                ${{LM_EVAL_INCLUDE_PATH:+--include_path $LM_EVAL_INCLUDE_PATH}} \
+                ${{LM_EVAL_INCLUDE_PATH:+--include_path $$LM_EVAL_INCLUDE_PATH}} \
+                --batch_size auto \
                 ${{LIMIT:+--limit $LIMIT}}
             echo "----------------------------------------------------"
             ;;

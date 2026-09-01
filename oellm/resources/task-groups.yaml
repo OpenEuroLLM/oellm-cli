@@ -2,6 +2,7 @@ task_groups:
   sib200-eu:
     description: "SIB-200 European language topic classification tasks (0-shot)"
     suite: lm-eval-harness
+    metric: acc_norm
     n_shots: [0]
     dataset: Davlan/sib200
     valid_langs: [bul_Cyrl, hrv_Latn, ces_Latn, dan_Latn, nld_Latn, eng_Latn, est_Latn, fin_Latn,
@@ -15,6 +16,7 @@ task_groups:
   open-sci-0.01:
     description: "open-sci-ref 0.01 evals"
     suite: lm-eval-harness
+    metric: acc
     tasks:
       - task: copa
         n_shots: [0]
@@ -24,6 +26,7 @@ task_groups:
         n_shots: [0]
         dataset: allenai/social_i_qa
       - task: openbookqa
+        metric: acc_norm
         n_shots: [0]
         dataset: allenai/openbookqa
       - task: lambada_openai
@@ -37,13 +40,16 @@ task_groups:
         n_shots: [5]
         dataset: cais/mmlu
       - task: hellaswag
+        metric: acc_norm
         n_shots: [10]
         dataset: Rowan/hellaswag
       - task: arc_easy
+        metric: acc_norm
         n_shots: [10]
         dataset: allenai/ai2_arc
         subset: ARC-Easy
       - task: arc_challenge
+        metric: acc_norm
         n_shots: [10]
         dataset: allenai/ai2_arc
         subset: ARC-Challenge
@@ -51,6 +57,7 @@ task_groups:
         n_shots: [10]
         dataset: tau/commonsense_qa
       - task: piqa
+        metric: acc_norm
         n_shots: [10]
         dataset: baber/piqa
       - task: boolq
@@ -71,6 +78,7 @@ task_groups:
   belebele-eu-cf:
     description: "Belebele European language tasks (cloze formulation, lighteval)"
     suite: lighteval
+    metric: acc_norm
     n_shots: [0]
     dataset: facebook/belebele
     valid_langs: [bul_Cyrl, hrv_Latn, ces_Latn, dan_Latn, nld_Latn, eng_Latn, est_Latn, fin_Latn,
@@ -80,25 +88,93 @@ task_groups:
     tasks:
       - task: "belebele_{lang}_cf"
         subset: "{lang}"
-      
+
+  xcsqa-eu:
+    description: "XCSQA EU commonsense QA (0-shot MCQ, acc_norm)"
+    suite: lm-eval-harness
+    metric: acc_norm
+    n_shots: [0]
+    dataset: INK-USC/xcsr
+    tasks:
+      - task: xcsqa_deu_Latn
+        subset: X-CSQA-de
+      - task: xcsqa_eng_Latn
+        subset: X-CSQA-en
+      - task: xcsqa_spa_Latn
+        subset: X-CSQA-es
+      - task: xcsqa_fra_Latn
+        subset: X-CSQA-fr
+      - task: xcsqa_ita_Latn
+        subset: X-CSQA-it
+      - task: xcsqa_nld_Latn
+        subset: X-CSQA-nl
+      - task: xcsqa_pol_Latn
+        subset: X-CSQA-pl
+      - task: xcsqa_por_Latn
+        subset: X-CSQA-pt
+
+  pawsx-eu:
+    description: "PAWS-X EU paraphrase detection (0-shot, acc)"
+    suite: lm-eval-harness
+    metric: acc
+    n_shots: [0]
+    dataset: google-research-datasets/paws-x
+    tasks:
+      - task: pawsx_deu_Latn
+        subset: de
+      - task: pawsx_eng_Latn
+        subset: en
+      - task: pawsx_spa_Latn
+        subset: es
+      - task: pawsx_fra_Latn
+        subset: fr
+
+  xnli-eu:
+    description: "XNLI EU natural language inference (0-shot, acc)"
+    suite: lm-eval-harness
+    metric: acc
+    n_shots: [0]
+    dataset: facebook/xnli
+    tasks:
+      - task: xnli_bul_Cyrl
+        subset: bg
+      - task: xnli_deu_Latn
+        subset: de
+      - task: xnli_ell_Grek
+        subset: el
+      - task: xnli_eng_Latn
+        subset: en
+      - task: xnli_spa_Latn
+        subset: es
+      - task: xnli_fra_Latn
+        subset: fr
+
   flores-200-eu-to-eng:
-    description: "Flores 200 EU to English translation"
+    description: "Flores 200 EU->English translation (0-shot, chrf++)."
     suite: lighteval
+    metric: chrf++
     n_shots: [0]
     dataset: facebook/flores
-    valid_langs: [bul_Cyrl, ces_Latn, dan_Latn, deu_Latn, ell_Grek, est_Latn, fin_Latn, fra_Latn,
-                  gle_Latn, hrv_Latn, hun_Latn, ita_Latn, lit_Latn, lvs_Latn, mlt_Latn, nld_Latn,
-                  pol_Latn, por_Latn, ron_Latn, slk_Latn, slv_Latn, spa_Latn, swe_Latn]
+    valid_langs: [bul_Cyrl, hrv_Latn, ces_Latn, dan_Latn, nld_Latn, est_Latn,
+                  fin_Latn, fra_Latn, deu_Latn, ell_Grek, hun_Latn, gle_Latn,
+                  ita_Latn, lvs_Latn, lit_Latn, mlt_Latn, pol_Latn, por_Latn,
+                  ron_Latn, slk_Latn, slv_Latn, spa_Latn, swe_Latn, cat_Latn,
+                  eus_Latn, glg_Latn, bos_Latn, kat_Geor, mkd_Cyrl, als_Latn,
+                  srp_Cyrl, tur_Latn, ukr_Cyrl, isl_Latn, nob_Latn]
     tasks:
       - task: "flores200:{lang}-eng_Latn"
   flores-200-eng-to-eu:
-    description: "Flores 200 English to EU translation"
+    description: "Flores 200 English->EU translation (0-shot, chrf++)."
     suite: lighteval
+    metric: chrf++
     n_shots: [0]
     dataset: facebook/flores
-    valid_langs: [bul_Cyrl, ces_Latn, dan_Latn, deu_Latn, ell_Grek, est_Latn, fin_Latn, fra_Latn,
-                  gle_Latn, hrv_Latn, hun_Latn, ita_Latn, lit_Latn, lvs_Latn, mlt_Latn, nld_Latn,
-                  pol_Latn, por_Latn, ron_Latn, slk_Latn, slv_Latn, spa_Latn, swe_Latn]
+    valid_langs: [bul_Cyrl, hrv_Latn, ces_Latn, dan_Latn, nld_Latn, est_Latn,
+                  fin_Latn, fra_Latn, deu_Latn, ell_Grek, hun_Latn, gle_Latn,
+                  ita_Latn, lvs_Latn, lit_Latn, mlt_Latn, pol_Latn, por_Latn,
+                  ron_Latn, slk_Latn, slv_Latn, spa_Latn, swe_Latn, cat_Latn,
+                  eus_Latn, glg_Latn, bos_Latn, kat_Geor, mkd_Cyrl, als_Latn,
+                  srp_Cyrl, tur_Latn, ukr_Cyrl, isl_Latn, nob_Latn]
     tasks:
       - task: "flores200:eng_Latn-{lang}"
   global-mmlu-eu:
@@ -109,6 +185,16 @@ task_groups:
     valid_langs: [cs, de, el, en, es, fr, it, lt, nl, pl, pt, ro, ru, sr, sv, tr, uk, he]
     tasks:
       - task: "global_mmlu_full_{lang}"
+        subset: "{lang}"
+  mmlu-prox-eu:
+    description: "MMLU-ProX EU subset, 5-shot CoT, exact-match."
+    suite: lm-eval-harness
+    metric: exact_match
+    n_shots: [5]
+    dataset: li-lab/MMLU-ProX
+    valid_langs: [cs, de, en, es, fr, hu, it, pt, sr, uk]
+    tasks:
+      - task: "mmlu_prox_{lang}"
         subset: "{lang}"
   mgsm-eu:
     description: "EU Language GSM benchmarks in Aya Expanse"
@@ -124,6 +210,35 @@ task_groups:
         subset: es
       - task: mgsm_native_cot_fr
         subset: fr
+
+  global-mgsm-eu:
+    description: "Global-MGSM EU grade-school math (0-shot, exact_match)."
+    suite: lm-eval-harness
+    metric: exact_match
+    n_shots: [0]
+    dataset: CohereLabs/global-mgsm
+    valid_langs: [de, fr, es, el, cs, hu, en, ca, eu, gl, sr]
+    tasks:
+      - task: "global_mgsm_{lang}"
+        subset: "{lang}"
+
+  mmmlu-eu:
+    description: "MMMLU (human-translated MMLU), EU subset, 5-shot acc."
+    suite: lm-eval-harness
+    metric: acc
+    n_shots: [5]
+    dataset: openai/MMMLU
+    tasks:
+      - task: mmmlu_de_de
+        subset: DE_DE
+      - task: mmmlu_es_la
+        subset: ES_LA
+      - task: mmmlu_fr_fr
+        subset: FR_FR
+      - task: mmmlu_it_it
+        subset: IT_IT
+      - task: mmmlu_pt_br
+        subset: PT_BR
 
   generic-multilingual:
     description: "Generic multilingual benchmarks in Aya Expanse"
@@ -197,15 +312,18 @@ task_groups:
   dclm-core-22:
     description: "DCLM core 22 evaluation tasks (lm-eval-harness, matching LLM Foundry task types)"
     suite: lm-eval-harness
+    metric: acc
     tasks:
       - task: agieval_lsat_ar
         n_shots: [3]
         dataset: hails/agieval-lsat-ar
       - task: arc_easy
+        metric: acc_norm
         n_shots: [10]
         dataset: allenai/ai2_arc
         subset: ARC-Easy
       - task: arc_challenge
+        metric: acc_norm
         n_shots: [10]
         dataset: allenai/ai2_arc
         subset: ARC-Challenge
@@ -221,13 +339,16 @@ task_groups:
         dataset: aps/super_glue
         subset: copa
       - task: hellaswag
+        metric: acc_norm
         n_shots: [0, 10]
         dataset: Rowan/hellaswag
       - task: openbookqa
+        metric: acc_norm
         n_shots: [0]
         dataset: allenai/openbookqa
         subset: main
       - task: piqa
+        metric: acc_norm
         n_shots: [10]
         dataset: baber/piqa
       - task: bigbench_language_identification_multiple_choice
@@ -245,39 +366,93 @@ task_groups:
         n_shots: [0]
         dataset: EleutherAI/lambada_openai
       - task: bigbench_qa_wikidata_generate_until
+        metric: exact_match
         n_shots: [10]
         dataset: hails/bigbench
         subset: qa_wikidata_zero_shot
       - task: bigbench_dyck_languages_generate_until
+        metric: exact_match
         n_shots: [10]
         dataset: hails/bigbench
         subset: dyck_languages_zero_shot
       - task: bigbench_operators_generate_until
+        metric: exact_match
         n_shots: [10]
         dataset: hails/bigbench
         subset: operators_zero_shot
       - task: bigbench_repeat_copy_logic_generate_until
+        metric: exact_match
         n_shots: [10]
         dataset: hails/bigbench
         subset: repeat_copy_logic_zero_shot
       - task: bigbench_cs_algorithms_generate_until
+        metric: exact_match
         n_shots: [10]
         dataset: hails/bigbench
         subset: cs_algorithms_zero_shot
       - task: coqa
+        metric: f1
         n_shots: [0]
         dataset: EleutherAI/coqa
       - task: squadv2
+        metric: f1
         n_shots: [10]
         dataset: rajpurkar/squad_v2
-      # TODO: jeopardy is not available in lm-eval-harness.
-      # - task: jeopardy
-      #   n_shots: [10]
-      #   dataset: openaccess-ai-collective/jeopardy
+      - task: jeopardy
+        metric: exact_match
+        n_shots: [10]
+        dataset: openeurollm/jeopardy
+
+  opensubtitles-eu-en-xx:
+    description: "OpenSubtitles Multi40 English->EU translation (0-shot, BLEU)."
+    suite: lm-eval-harness
+    metric: bleu
+    n_shots: [0]
+    dataset: Helsinki-NLP/OpenSubtitles2024-40-langs-15-movies
+    valid_langs: [bg, hr, cs, da, nl, et, fi, fr, de, el, hu, it, lv, lt, pl,
+                  pt, ro, sk, sl, es, sv, sr, tr, uk, "no"]
+    tasks:
+      - task: "opensubtitles_multi40_en_to_{lang}"
+
+  opensubtitles-eu-xx-en:
+    description: "OpenSubtitles Multi40 EU->English translation (0-shot, BLEU)."
+    suite: lm-eval-harness
+    metric: bleu
+    n_shots: [0]
+    dataset: Helsinki-NLP/OpenSubtitles2024-40-langs-15-movies
+    valid_langs: [bg, hr, cs, da, nl, et, fi, fr, de, el, hu, it, lv, lt, pl,
+                  pt, ro, sk, sl, es, sv, sr, tr, uk, "no"]
+    tasks:
+      - task: "opensubtitles_multi40_{lang}_to_en"
+
+  multiblimp-eu:
+    description: "MultiBLIMP grammaticality judgment (0-shot) for EU languages."
+    suite: lm-eval-harness
+    metric: acc_norm
+    n_shots: [0]
+    dataset: jumelet/multiblimp
+    valid_langs: [bul, ces, dan, nld, eng, est, fin, fra, deu, ell, hun, gle,
+                  ita, lav, lit, pol, por, ron, slk, slv, spa, swe, cat, eus,
+                  glg, kat, mkd, sqi, hbs, tur, ukr, isl]
+    tasks:
+      - task: "multiblimp_{lang}"
+        subset: "{lang}"
+
+  xcopa-eu:
+    description: "XCOPA commonsense causal reasoning (0-shot) for EU languages."
+    suite: lighteval
+    metric: acc
+    n_shots: [0]
+    dataset: cambridgeltl/xcopa
+    valid_langs: [et, it, tr]
+    tasks:
+      - task: "xcopa:{lang}"
+        subset: "{lang}"
 
   arc-challenge-mt-eu:
     description: "ARC Challenge multilingual (22 European languages)"
     suite: lm-eval-harness
+    metric: acc_norm
     n_shots: [0]
     dataset: LumiOpen/arc_challenge_mt
     valid_langs: [bg, cs, da, nl, et, fi, fr, de, el, hu, it, lv, lt, pl, pt, ro, sk, sl, es, sv, nb]
@@ -286,8 +461,20 @@ task_groups:
         subset: "{lang}"
       - task: arc_challenge_mt_is  # no subset in the source dataset
 
+  hellaswag-eu:
+    description: "Okapi HellaSwag multilingual (16 EU languages, 0-shot)."
+    suite: lm-eval-harness
+    metric: acc_norm
+    n_shots: [0]
+    dataset: alexandrainst/m_hellaswag
+    valid_langs: [da, nl, fr, de, hu, it, pt, ro, sk, es, sv, hr,
+                  ca, eu, sr, uk]
+    tasks:
+      - task: "hellaswag_{lang}"
+        subset: "{lang}"
+
   reasoning:
-    description: "Reasoning tasks: GSM8k (4-shot), IFEval (0-shot), MBPP (3-shot), GPQA-Diamond (0-shot), MATH500 (0-shot), LiveCodeBench (0-shot)"
+    description: "Reasoning tasks: GSM8k (4-shot), IFEval (0-shot), MBPP (3-shot), GPQA-Diamond (0-shot), MATH500 (0-shot), LiveCodeBench (0-shot), HumanEval (0-shot), AIME24 (0-shot), AIME25 (0-shot), AMC23 (0-shot)"
     suite: lm-eval-harness
     tasks:
       - task: gsm8k
@@ -310,10 +497,23 @@ task_groups:
         n_shots: [0]
         suite: evalchemy
         dataset: livecodebench/code_generation_lite
+      - task: HumanEval
+        n_shots: [0]
+        suite: evalchemy
+      - task: AIME24
+        n_shots: [0]
+        suite: evalchemy
+      - task: AIME25
+        n_shots: [0]
+        suite: evalchemy
+      - task: AMC23
+        n_shots: [0]
+        suite: evalchemy
 
   global-piqa-eu-completions:
     description: "Global PIQA European languages — multiple-choice completions (0-shot, mrlbenchmarks/global-piqa-nonparallel)"
     suite: lm-eval-harness
+    metric: acc_norm
     n_shots: [0]
     dataset: mrlbenchmarks/global-piqa-nonparallel
     valid_langs: [als_latn, bos_latn, bul_cyrl, cat_latn, ces_latn, deu_latn, ekk_latn, ell_grek,
@@ -327,6 +527,7 @@ task_groups:
   global-piqa-eu-prompted:
     description: "Global PIQA European languages — prompted generation (0-shot, mrlbenchmarks/global-piqa-nonparallel)"
     suite: lm-eval-harness
+    metric: exact_match
     n_shots: [0]
     dataset: mrlbenchmarks/global-piqa-nonparallel
     valid_langs: [als_latn, bos_latn, bul_cyrl, cat_latn, ces_latn, deu_latn, ekk_latn, ell_grek,
@@ -335,6 +536,53 @@ task_groups:
                   ron_latn, slk_latn, slv_latn, spa_latn_spai, srp_cyrl, swe_latn, tur_latn, ukr_cyrl]
     tasks:
       - task: "global_piqa_prompted_{lang}"
+        subset: "{lang}"
+
+  # PolyMath ships 4 difficulty tiers (low/medium/high/top); each is a
+  # separate group so a tier can be run in isolation. EU languages only
+  # (de/en/es/fr/it/pt); 0-shot generative, \boxed{} answer + exact_match.
+  polymath-eu-low:
+    description: "PolyMath EU math, low tier (0-shot, exact_match)."
+    suite: lm-eval-harness
+    metric: exact_match
+    n_shots: [0]
+    dataset: Qwen/PolyMath
+    valid_langs: [de, en, es, fr, it, pt]
+    tasks:
+      - task: "polymath_{lang}_low"
+        subset: "{lang}"
+
+  polymath-eu-medium:
+    description: "PolyMath EU math, medium tier (0-shot, exact_match)."
+    suite: lm-eval-harness
+    metric: exact_match
+    n_shots: [0]
+    dataset: Qwen/PolyMath
+    valid_langs: [de, en, es, fr, it, pt]
+    tasks:
+      - task: "polymath_{lang}_medium"
+        subset: "{lang}"
+
+  polymath-eu-high:
+    description: "PolyMath EU math, high tier (0-shot, exact_match)."
+    suite: lm-eval-harness
+    metric: exact_match
+    n_shots: [0]
+    dataset: Qwen/PolyMath
+    valid_langs: [de, en, es, fr, it, pt]
+    tasks:
+      - task: "polymath_{lang}_high"
+        subset: "{lang}"
+
+  polymath-eu-top:
+    description: "PolyMath EU math, top/Olympiad tier (0-shot, exact_match)."
+    suite: lm-eval-harness
+    metric: exact_match
+    n_shots: [0]
+    dataset: Qwen/PolyMath
+    valid_langs: [de, en, es, fr, it, pt]
+    tasks:
+      - task: "polymath_{lang}_top"
         subset: "{lang}"
 
 super_groups:
@@ -348,3 +596,5 @@ super_groups:
       - task: mgsm-eu
       - task: generic-multilingual
       - task: include
+      - task: multiblimp-eu
+      - task: xcopa-eu

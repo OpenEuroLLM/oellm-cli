@@ -23,7 +23,14 @@ from oellm.task_groups import (
 
 # Multilingual groups still defined with explicit per-language task lists
 # (not {lang} templates) whose tasks must also resolve to a language.
-EXPLICIT_MULTILINGUAL_GROUPS = ["mgsm-eu", "include"]
+EXPLICIT_MULTILINGUAL_GROUPS = [
+    "mgsm-eu",
+    "include",
+    "xcsqa-eu",
+    "pawsx-eu",
+    "xnli-eu",
+    "mmmlu-eu",
+]
 
 
 def _raw_yaml() -> dict:
@@ -72,9 +79,10 @@ def test_language_codes_are_not_task_groups():
 
 
 def test_bracket_empty_intersection_hard_errors():
-    """flores-eu has no Ukrainian side -> an empty bracket match must raise."""
+    """flores-eu-to-eng resolves each task to its non-English side, so no task
+    ever resolves to English -> an empty bracket match must raise."""
     with pytest.raises(ValueError, match="No tasks in task group 'flores"):
-        _expand_task_groups(["flores-200-eu-to-eng[ukr_Cyrl]"])
+        _expand_task_groups(["flores-200-eu-to-eng[eng_Latn]"])
 
 
 def test_empty_bracket_rejected():
@@ -117,6 +125,7 @@ def test_super_group_bracket_resolves_language_subset():
         "global_mmlu_full_de",
         "include_base_44_german",
         "mgsm_native_cot_de",
+        "multiblimp_deu",
     }
     suites = {j.suite for j in jobs}
     assert "lm-eval-harness" in suites
