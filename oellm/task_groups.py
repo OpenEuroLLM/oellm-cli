@@ -44,6 +44,11 @@ _LANG_ALIAS = {
     "sl": "slv_Latn",
     "is": "isl_Latn",
     "nb": "nob_Latn",
+    "no": "nob_Latn",
+    "hr": "hrv_Latn",
+    "ca": "cat_Latn",
+    "eu": "eus_Latn",
+    "gl": "glg_Latn",
     # full English names (include)
     "albanian": "als_Latn",
     "armenian": "hye_Armn",
@@ -70,6 +75,49 @@ _LANG_ALIAS = {
     "spanish": "spa_Latn",
     "turkish": "tur_Latn",
     "ukrainian": "ukr_Cyrl",
+    # xcsqa: the group's `subset` is the HF config (`X-CSQA-<iso1>`, needed for
+    # pre-download), so the language is derived from that config spelling here.
+    "x-csqa-de": "deu_Latn",
+    "x-csqa-en": "eng_Latn",
+    "x-csqa-es": "spa_Latn",
+    "x-csqa-fr": "fra_Latn",
+    "x-csqa-it": "ita_Latn",
+    "x-csqa-nl": "nld_Latn",
+    "x-csqa-pl": "pol_Latn",
+    "x-csqa-pt": "por_Latn",
+    # ISO 639-3 three-letter codes (multiblimp HF configs / subsets)
+    "bul": "bul_Cyrl",
+    "ces": "ces_Latn",
+    "dan": "dan_Latn",
+    "nld": "nld_Latn",
+    "eng": "eng_Latn",
+    "est": "est_Latn",
+    "fin": "fin_Latn",
+    "fra": "fra_Latn",
+    "deu": "deu_Latn",
+    "ell": "ell_Grek",
+    "hun": "hun_Latn",
+    "gle": "gle_Latn",
+    "ita": "ita_Latn",
+    "lav": "lvs_Latn",
+    "lit": "lit_Latn",
+    "pol": "pol_Latn",
+    "por": "por_Latn",
+    "ron": "ron_Latn",
+    "slk": "slk_Latn",
+    "slv": "slv_Latn",
+    "spa": "spa_Latn",
+    "swe": "swe_Latn",
+    "cat": "cat_Latn",
+    "eus": "eus_Latn",
+    "glg": "glg_Latn",
+    "kat": "kat_Geor",
+    "mkd": "mkd_Cyrl",
+    "sqi": "als_Latn",
+    "hbs": "srp_Cyrl",
+    "tur": "tur_Latn",
+    "ukr": "ukr_Cyrl",
+    "isl": "isl_Latn",
 }
 # Distinct individual-language codes folded into a macrolanguage code.
 _LANG_SPECIAL = {"ekk_Latn": "est_Latn"}  # global-piqa uses ekk (Standard Estonian)
@@ -97,15 +145,20 @@ def _canonical_language(code: str | None) -> str | None:
 def _resolve_task_languages(name: str, subset: str | None) -> list[str]:
     """Return the canonical language code(s) a task belongs to, if any.
 
-    Translation pairs (``flores200:src-tgt``) resolve to their non-English
-    side; every other task resolves via its ``subset``. Tasks with no
-    recognisable language (e.g. English-only standard benchmarks) return [].
+    Translation pairs (``flores200:src-tgt`` and
+    ``opensubtitles_multi40_src_to_tgt``) resolve to their non-English side;
+    every other task resolves via its ``subset``. Tasks with no recognisable
+    language (e.g. English-only standard benchmarks) return [].
     """
     if name.startswith("flores200:"):
         pair = name.split(":", 1)[1]
         langs = [
             _canonical_language(part) for part in pair.split("-") if part != "eng_Latn"
         ]
+        return [lang for lang in langs if lang]
+    if name.startswith("opensubtitles_multi40_"):
+        pair = name[len("opensubtitles_multi40_") :]
+        langs = [_canonical_language(part) for part in pair.split("_to_") if part != "en"]
         return [lang for lang in langs if lang]
     lang = _canonical_language(subset)
     if lang:
