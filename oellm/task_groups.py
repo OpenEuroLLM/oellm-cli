@@ -247,9 +247,19 @@ class TaskGroup:
 
 @dataclass
 class TaskSuperGroup:
+    """A named collection of task groups.
+
+    ``languages`` is an optional declared scope: when set, the super_group
+    resolves only to the tasks in its groups that belong to those languages,
+    without the caller having to spell them out in a ``[...]`` bracket. A
+    caller-supplied bracket narrows within the declared scope; it cannot widen
+    past it.
+    """
+
     name: str
     task_groups: list[TaskGroup]
     description: str
+    languages: list[str] | None = None
 
     def __post_init__(self):
         resolved_groups = []
@@ -274,10 +284,12 @@ class TaskSuperGroup:
                 )
             task_groups.append(available_task_groups[group_name])
 
+        languages = data.get("languages")
         return cls(
             name=name,
             task_groups=task_groups,
             description=data["description"],
+            languages=list(languages) if languages else None,
         )
 
 
@@ -350,6 +362,21 @@ def _parse_task_groups(
         super_groups[super_group_name] = TaskSuperGroup.from_dict(
             super_group_name, super_group_data, task_groups
         )
+
+    # A declared ``languages`` scope is checked against the codes tasks actually
+    # resolve to, so a typo or a language no benchmark covers fails at load time
+    # rather than silently narrowing the super_group to nothing.
+    known_codes = _language_codes_from_groups(task_groups)
+    for super_group in super_groups.values():
+        if not super_group.languages:
+            continue
+        unknown = [c for c in super_group.languages if c not in known_codes]
+        if unknown:
+            raise ValueError(
+                f"Super group '{super_group.name}' declares unknown language "
+                f"code(s): {', '.join(sorted(unknown))}. Use the precise "
+                f"lang_Scri form; valid codes: {', '.join(sorted(known_codes))}"
+            )
 
     # Reserved super_group spanning every task group, generated from the
     # registry so it never needs hand-maintaining as groups are added. Pair it
@@ -502,6 +529,10 @@ def _select_tasks(group_names: Iterable[str]) -> list[tuple[str, _Task]]:
     A per-group ``[...]`` language bracket keeps only the tasks in that group
     (or super_group) that resolve to one of the bracketed languages, and
     hard-errors if it matches nothing in that group.
+
+    A super_group that declares a ``languages`` scope is filtered to it even
+    without a bracket; a bracket then narrows within that scope, and asking for
+    a language outside it raises rather than widening the group.
     """
     specs = _resolve_group_specs(group_names)
 
@@ -513,6 +544,23 @@ def _select_tasks(group_names: Iterable[str]) -> list[tuple[str, _Task]]:
     selected: list[tuple[str, _Task]] = []
     seen: set[tuple[str, str]] = set()
     for name, filt in specs:
+        # A super_group may declare its own language scope. A caller bracket
+        # narrows within it; on its own the declaration acts as the filter.
+        declared = getattr(parsed[name], "languages", None)
+        bracketed = filt is not None
+        if declared:
+            if filt is None:
+                filt = list(declared)
+            else:
+                scope = set(declared)
+                narrowed = [lang for lang in filt if lang in scope]
+                if not narrowed:
+                    raise ValueError(
+                        f"Language(s) {{{', '.join(filt)}}} are outside the scope "
+                        f"of super group '{name}' ({', '.join(sorted(declared))})."
+                    )
+                filt = narrowed
+
         group_pairs = list(_iter_group_tasks({name: parsed[name]}))
         if filt is None:
             kept = group_pairs
@@ -525,7 +573,9 @@ def _select_tasks(group_names: Iterable[str]) -> list[tuple[str, _Task]]:
                 )
             matched = {lang for _s, t in kept for lang in t.languages if lang in filt}
             unmatched = [lang for lang in filt if lang not in matched]
-            if unmatched:
+            # A declared scope spans many benchmarks, and no single benchmark
+            # covers all of it -- only an explicit bracket is worth warning about.
+            if unmatched and bracketed:
                 logging.warning(
                     "No tasks matched language(s) %s in group '%s'; kept %s.",
                     ", ".join(unmatched),

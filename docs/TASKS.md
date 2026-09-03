@@ -54,6 +54,7 @@ oellm-eval schedule --models "model-name" --task_groups "my-benchmark"
 | `dataset` | Yes | group or task | HuggingFace dataset repo ID (required for pre-download and testing) |
 | `task` | Yes | task | Task name as recognized by the evaluation suite |
 | `subset` | No | task | HuggingFace dataset config/subset name |
+| `languages` | No | super group | Canonical `lang_Scri` codes the super group is scoped to (see below) |
 
 ## Language filtering (`group[lang]` brackets)
 
@@ -79,8 +80,9 @@ input — they are rejected with an error naming the canonical code. (The foldin
 described below applies only to the benchmarks' own internal spellings when
 deriving a task's language, not to what you type in the bracket.)
 
-Languages are **derived in code** — there is no `languages` field to set in the
-YAML. A task resolves to a canonical [`lang_Script`](https://en.wikipedia.org/wiki/IETF_language_tag)
+Languages are **derived in code**: no YAML field tags a *task* with a language.
+(A super group's `languages` key, below, only selects among the codes tasks
+already resolve to.) A task resolves to a canonical [`lang_Script`](https://en.wikipedia.org/wiki/IETF_language_tag)
 code (e.g. `deu_Latn`) from, in order:
 
 1. **`flores200:src-tgt` task names** → the non-English side(s) of the pair.
@@ -105,6 +107,39 @@ tasks, since each task carries its own resolved suite. Unknown codes error; a
 bracket that matches no task in its group errors; when a bracket lists several
 languages and only some are present, the matches are kept and the rest warned
 about (some languages simply lack certain benchmarks).
+
+### Declaring a super group's language scope
+
+A super group may carry its own `languages:` list, so callers get the right
+languages without spelling them out in a bracket every time:
+
+```yaml
+super_groups:
+  oellm-multilingual:
+    description: "..."
+    languages: [bul_Cyrl, ces_Latn, deu_Latn]   # canonical codes
+    task_groups:
+      - task: sib200-eu
+      - task: flores-200-eu-to-eng
+```
+
+```bash
+# Already scoped -- no bracket needed
+oellm-eval schedule --models "m" --task_groups "oellm-multilingual"
+```
+
+The declared codes are validated when the registry loads, so a typo or a
+language no benchmark covers fails immediately rather than silently narrowing
+the group to nothing. A caller's bracket **narrows within** the declared scope:
+`oellm-multilingual[deu_Latn]` gives German only, while a code outside the scope
+errors instead of widening it — reach past it with `all[<code>]`, which is
+unscoped. Plain task groups take no `languages` key, and a super group without
+one behaves exactly as before.
+
+Note that a declared scope drops tasks that resolve to *no* language, since a
+language filter cannot keep them. Aggregate multi-language tasks such as
+`xwinograd` or `xstorycloze` therefore cannot live in a scoped super group;
+request their group (`generic-multilingual`) directly.
 
 ## Important: Dataset Requirement
 

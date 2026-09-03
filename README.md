@@ -55,7 +55,11 @@ Available task groups:
 - `include` - INCLUDE benchmarks
 
 Super groups combine multiple task groups:
-- `oellm-multilingual` - All multilingual benchmarks combined
+- `oellm-multilingual` - Every multilingual benchmark, scoped to the 36
+  prioritised OpenEuroLLM target languages (the 24 official EU languages,
+  Catalan/Basque/Galician, candidate-member languages, Icelandic/Norwegian).
+  Off-list languages some benchmarks ship (Russian, Hebrew, Armenian,
+  Azerbaijani, Belarusian) are not scheduled; use `all` to reach them.
 
 ```bash
 # Use a task group
@@ -79,12 +83,14 @@ Scope a task group (or super group) to one or more languages by attaching a
 # The applicable subset of the multilingual super group for one language —
 # the simplest way to evaluate a monolingual model on its language across
 # every multilingual benchmark (FLORES, Belebele, Global-MMLU, INCLUDE, MGSM,
-# …), spanning both lm-eval-harness and lighteval.
+# SIB-200, PolyMath, …), spanning both lm-eval-harness and lighteval. The
+# bracket narrows within the group's target-language scope; it cannot widen it.
 oellm-eval schedule --models "my-model" --task_groups "oellm-multilingual[deu_Latn]"
 
 # Every benchmark in the registry for one language. `all` is an auto-generated
-# super group (always spans every task group, no hand-maintenance) — use it for
-# the complete per-language set rather than the curated `oellm-multilingual`.
+# super group (always spans every task group, no hand-maintenance) and carries
+# no language scope — use it for the complete per-language set, or to reach a
+# language `oellm-multilingual` deliberately excludes.
 oellm-eval schedule --models "my-model" --task_groups "all[deu_Latn]"
 
 # A single benchmark, scoped to German.

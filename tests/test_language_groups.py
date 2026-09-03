@@ -17,6 +17,7 @@ from oellm.task_groups import (
     _expand_task_groups,
     _load_task_groups_data,
     _resolve_task_languages,
+    _select_tasks,
     get_all_language_codes,
     split_group_tokens,
 )
@@ -119,13 +120,26 @@ def test_super_group_bracket_resolves_language_subset():
     jobs = _expand_task_groups(["oellm-multilingual[deu_Latn]"])
     tasks = {j.task for j in jobs}
     assert tasks == {
+        "arc_challenge_mt_de",
         "belebele_deu_Latn",
         "flores200:deu_Latn-eng_Latn",
         "flores200:eng_Latn-deu_Latn",
+        "global_mgsm_de",
         "global_mmlu_full_de",
+        "global_piqa_completions_deu_latn",
+        "global_piqa_prompted_deu_latn",
+        "hellaswag_de",
         "include_base_44_german",
         "mgsm_native_cot_de",
         "multiblimp_deu",
+        "opensubtitles_multi40_de_to_en",
+        "opensubtitles_multi40_en_to_de",
+        "polymath_de_high",
+        "polymath_de_low",
+        "polymath_de_medium",
+        "polymath_de_top",
+        "sib200_deu_Latn",
+        "xcsqa_deu_Latn",
     }
     suites = {j.suite for j in jobs}
     assert "lm-eval-harness" in suites
@@ -208,3 +222,89 @@ def test_templated_tasks_all_resolve_to_a_language():
                 f"{name}: task {task['task']} (subset={task.get('subset')}) "
                 "did not resolve to a language"
             )
+
+
+# --- declared super_group language scope -------------------------------------
+# A super_group may carry a `languages:` list in the YAML, which scopes it
+# without the caller spelling the codes out in a bracket.
+
+EU_TARGETS = "oellm-multilingual"
+# Languages some benchmarks ship that are not OpenEuroLLM targets.
+OFF_TARGET_CODES = ["rus_Cyrl", "heb_Hebr", "hye_Armn", "aze_Latn", "bel_Cyrl"]
+
+
+def _declared_scope(name: str) -> list[str]:
+    return _raw_yaml()["super_groups"][name]["languages"]
+
+
+def test_declared_scope_codes_are_valid():
+    """Every declared code must be one a task actually resolves to, or the
+    super_group would silently narrow to nothing."""
+    valid = set(get_all_language_codes())
+    assert set(_declared_scope(EU_TARGETS)) <= valid
+
+
+def test_declared_scope_applies_without_a_bracket():
+    """`oellm-eu-targets` alone resolves to exactly its declared languages."""
+    _suite_and_tasks = _select_tasks([EU_TARGETS])
+    reached = {lang for _s, t in _suite_and_tasks for lang in t.languages}
+    assert reached == set(_declared_scope(EU_TARGETS))
+
+
+def test_declared_scope_excludes_off_target_languages():
+    tasks = {j.task for j in _expand_task_groups([EU_TARGETS])}
+    assert tasks
+    for absent in [
+        "global_mmlu_full_ru",
+        "global_mmlu_full_he",
+        "include_base_44_russian",
+    ]:
+        assert absent not in tasks
+
+
+def test_declared_scope_narrows_with_a_bracket():
+    scoped = {j.task for j in _expand_task_groups([f"{EU_TARGETS}[deu_Latn]"])}
+    full = {j.task for j in _expand_task_groups([EU_TARGETS])}
+    assert scoped
+    assert scoped < full
+
+
+@pytest.mark.parametrize("code", OFF_TARGET_CODES)
+def test_declared_scope_cannot_be_widened_by_a_bracket(code):
+    """A bracket narrows within the declared scope; it cannot reach past it."""
+    with pytest.raises(ValueError) as excinfo:
+        _expand_task_groups([f"{EU_TARGETS}[{code}]"])
+    assert "outside the scope" in str(excinfo.value)
+
+
+def test_declared_scope_rejects_unknown_codes_at_load_time(monkeypatch):
+    """A typo'd or uncovered code fails when the registry loads, not silently."""
+    from oellm import task_groups as tg
+
+    data = _load_task_groups_data()
+    data["super_groups"]["_bad"] = {
+        "description": "typo'd scope",
+        "languages": ["deu_Latn", "nope_Xxxx"],
+        "task_groups": [{"task": "sib200-eu"}],
+    }
+    monkeypatch.setattr(tg, "_load_task_groups_data", lambda: data)
+    with pytest.raises(ValueError) as excinfo:
+        tg._parse_task_groups(["_bad"])
+    assert "nope_Xxxx" in str(excinfo.value)
+
+
+def test_super_group_without_a_declared_scope_is_unaffected():
+    """The synthetic `all` super_group declares no scope, so it still reaches
+    languages outside any declared list."""
+    reached = {lang for _s, t in _select_tasks(["all"]) for lang in t.languages}
+    assert set(OFF_TARGET_CODES) <= reached
+    assert _expand_task_groups(["all[rus_Cyrl]"])
+
+
+def test_declared_scope_covers_every_listed_group():
+    """Each group listed in the super_group must contribute at least one task
+    under the declared scope -- an entry that contributes nothing is a mistake."""
+    listed = [g["task"] for g in _raw_yaml()["super_groups"][EU_TARGETS]["task_groups"]]
+    scope = ",".join(_declared_scope(EU_TARGETS))
+    for group_name in listed:
+        assert _expand_task_groups([f"{group_name}[{scope}]"]), group_name

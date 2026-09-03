@@ -959,14 +959,76 @@ task_groups:
 
 super_groups:
   oellm-multilingual:
-    description: "Combined Belebele EU set plus multilingual benchmarks"
+    description: >-
+      Every multilingual benchmark in the OpenEuroLLM evaluation suite, scoped
+      to the 36 prioritised target languages: the 24 official EU languages,
+      Catalan/Basque/Galician, the candidate-member languages, and
+      Icelandic/Norwegian. Off-list languages that some benchmarks ship
+      (Russian, Hebrew, Armenian, Azerbaijani, Belarusian) are not scheduled.
+    # 37 codes for 36 languages -- Norwegian has two written standards.
+    # Spellings are this registry's canonical ones: Latvian is lvs_Latn,
+    # Albanian als_Latn, Serbian srp_Cyrl (no benchmark ships srp_Latn).
+    languages:
+      # 24 official EU languages
+      - bul_Cyrl
+      - ces_Latn
+      - dan_Latn
+      - deu_Latn
+      - ell_Grek
+      - eng_Latn
+      - est_Latn
+      - fin_Latn
+      - fra_Latn
+      - gle_Latn
+      - hrv_Latn
+      - hun_Latn
+      - ita_Latn
+      - lit_Latn
+      - lvs_Latn
+      - mlt_Latn
+      - nld_Latn
+      - pol_Latn
+      - por_Latn
+      - ron_Latn
+      - slk_Latn
+      - slv_Latn
+      - spa_Latn
+      - swe_Latn
+      # co-official languages of member states
+      - cat_Latn
+      - eus_Latn
+      - glg_Latn
+      # candidate members
+      - als_Latn
+      - bos_Latn
+      - kat_Geor
+      - mkd_Cyrl
+      - srp_Cyrl
+      - tur_Latn
+      - ukr_Cyrl
+      # closely associated Scandinavian
+      - isl_Latn
+      - nno_Latn
+      - nob_Latn
     task_groups:
-      - task: flores-200-eu-to-eng
-      - task: flores-200-eng-to-eu
+      - task: arc-challenge-mt-eu
       - task: belebele-eu-5-shot
+      - task: flores-200-eng-to-eu
+      - task: flores-200-eu-to-eng
+      - task: global-mgsm-eu
       - task: global-mmlu-eu
-      - task: mgsm-eu
-      - task: generic-multilingual
+      - task: global-piqa-eu-completions
+      - task: global-piqa-eu-prompted
+      - task: hellaswag-eu
       - task: include
+      - task: mgsm-eu
       - task: multiblimp-eu
+      - task: opensubtitles-eu-en-xx
+      - task: opensubtitles-eu-xx-en
+      - task: polymath-eu-high
+      - task: polymath-eu-low
+      - task: polymath-eu-medium
+      - task: polymath-eu-top
+      - task: sib200-eu
       - task: xcopa-eu
+      - task: xcsqa-eu
