@@ -76,7 +76,7 @@ oellm-eval schedule \
 ## Why Multiple Install Steps?
 
 
-lm-eval requires `datasets<4.0.0` while lighteval requires `datasets>=4.0.0`. Installing lighteval as an isolated uv tool (like the containers do) avoids this conflict. `lmms-eval` is compatible with `datasets<4.0.0` and can be installed alongside lm-eval in the same venv.
+The general venv pins `datasets<4.0.0`: lm-eval itself accepts newer versions, but datasets 4 dropped script-based datasets (which `tabfact` still uses) and `lmms-eval` targets `<4.0.0`, while lighteval requires `datasets>=4.0.0`. Installing lighteval as an isolated uv tool (like the containers do) keeps both constraints satisfied in one setup.
 
 ## Dependency Summary
 

@@ -2,6 +2,7 @@ import builtins
 import fnmatch
 import logging
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -112,6 +113,24 @@ def _setup_logging(verbose: bool = False):
     root_logger.setLevel(logging.DEBUG if verbose else logging.INFO)
 
 
+def _cluster_name() -> str:
+    """Return the SLURM cluster name, or empty string if not in a SLURM environment."""
+    try:
+        result = subprocess.run(
+            ["scontrol", "show", "config"], capture_output=True, text=True, timeout=5
+        )
+        match = (
+            re.search(r"ClusterName\s*=\s*(\S+)", result.stdout)
+            if result.returncode == 0
+            else None
+        )
+        if match:
+            return match.group(1).strip().lower()
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    return ""
+
+
 def _load_cluster_env() -> None:
     """
     Loads the correct cluster environment variables from `clusters.yaml` based on the hostname.
@@ -119,11 +138,15 @@ def _load_cluster_env() -> None:
     clusters = yaml.safe_load((files("oellm.resources") / "clusters.yaml").read_text())
 
     shared_cfg = clusters.get("shared", {}) or {}
+    slurm_cluster = _cluster_name()
+    local_hostname = socket.gethostname()
 
     def _match_cluster(hostname: str) -> dict | None:
         for name, cfg in clusters.items():
             if name == "shared":
                 continue
+            if slurm_cluster and name == slurm_cluster:
+                return dict(cfg)
             pattern = cfg.get("hostname_pattern")
             if isinstance(pattern, str):
                 patterns = [pattern]
@@ -135,15 +158,15 @@ def _load_cluster_env() -> None:
                 return dict(cfg)
         return None
 
-    hostname = socket.gethostname()
-    cluster_cfg_raw = _match_cluster(hostname)
+    cluster_cfg_raw = _match_cluster(local_hostname)
     if cluster_cfg_raw is None:
         fqdn = socket.getfqdn()
-        if fqdn != hostname:
+        if fqdn != local_hostname:
             cluster_cfg_raw = _match_cluster(fqdn)
-            hostname = fqdn
+            local_hostname = fqdn
+
     if cluster_cfg_raw is None:
-        raise ValueError(f"No cluster found for hostname: {hostname}")
+        raise ValueError(f"No cluster found for hostname: {local_hostname}")
 
     cluster_cfg_raw.pop("hostname_pattern", None)
 
