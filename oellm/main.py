@@ -613,6 +613,14 @@ def collect_results(
         ``acc_norm_stderr``).  When two raw keys collapse to the same stripped
         name the first one encountered wins.
 
+        A filter other than ``none`` means the task post-processed the model
+        output before scoring -- ``strict-match`` on jeopardy and the bigbench
+        ``generate_until`` tasks, which strip whitespace via ``filter_list``.
+        Stripping the suffix is safe because each task declares exactly one
+        filter, so its keys cannot collide.  A task declaring two (lm-eval's
+        bbh offers ``flexible-extract`` and ``strict-match``) would need
+        ``raw_key`` kept instead of split, to tell the variants apart.
+
         Both primary metrics and their ``_stderr`` counterparts are emitted as
         separate rows.
         """
